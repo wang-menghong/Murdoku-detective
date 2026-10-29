@@ -254,6 +254,8 @@ let S=fresh();
 try{const raw=localStorage.getItem(KEY);if(raw)S=Object.assign(fresh(),JSON.parse(raw));}catch(e){}
 let hist=[],result=null,mapImg=null,clueImg=null,boardCanvas=null,boardDirty=true,sampleFn=null,canImages=false,gv=null;
 const hostMode=!window.claude&&/^https?:$/.test(location.protocol); /* ordinary web host: clue reading goes through /api/read-clues */
+let apiProvider=null; /* {id,label} when the host's /api/read-clues has a key configured */
+const OCR_LOCAL='/vendor/tesseract/',OCR_CDN='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/';
 let saveT=0;
 function save(){clearTimeout(saveT);saveT=setTimeout(()=>{try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){try{localStorage.setItem(KEY,JSON.stringify(Object.assign({},S,{map:null,clue:null})));}catch(_){}}},250);}
 function loadImg(src){return new Promise(r=>{if(!src)return r(null);const i=new Image();i.onload=()=>r(i);i.onerror=()=>r(null);i.src=src;});}
@@ -502,15 +504,18 @@ function sortSuspects(){
 function rClues(){
   if(!S.suspects.length){for(let i=0;i<S.cols;i++)S.suspects.push(newSuspect(i));save();}
   sortSuspects();
-  const reader=S.clue&&((sampleFn&&canImages)||hostMode);
+  const aiOk=!!(sampleFn&&canImages)||(hostMode&&!!apiProvider);
+  const reader=!!S.clue&&aiOk;
+  const aiName=hostMode?(apiProvider&&apiProvider.label)||'AI':'Claude';
   $('#s-clues').innerHTML=`
     <h2>Enter the clues</h2>
     <div class="cluebox">
       ${S.clue?`<button class="thumb" data-act="view-clue" aria-label="Enlarge clue photo"><img src="${S.clue}" alt="Clue photo"></button>`:`<label class="drop" style="min-height:120px;padding:6px"><input type="file" accept="image/*" data-file="clue" hidden>${camIcon}<small>Add clue photo</small></label>`}
       <div class="col">
-        ${reader?`<button class="btn accent" id="readbtn" data-act="read-clues">Read clues with Claude</button>`:''}
+        ${reader?`<button class="btn accent" id="readbtn" data-act="read-clues">Read clues with ${esc(aiName)}</button>`:''}
+        ${S.clue&&hostMode?`<button class="btn" id="ocrbtn" data-act="read-ocr">Read clues offline (no AI)</button>`:''}
         ${S.clue?`<label class="btn" style="min-height:44px;font-size:14px;cursor:pointer"><input type="file" accept="image/*" data-file="clue" hidden>Replace photo</label>`:''}
-        <p class="note" id="clue-status" aria-live="polite">${reader?'Claude transcribes the photo into the cards below. Check each one.':(S.clue?'Type each suspect below. Tap the photo to enlarge it while you type.':'Add a clue photo, or type the clues in by hand.')}</p>
+        <p class="note" id="clue-status" aria-live="polite">${reader?(hostMode&&apiProvider&&apiProvider.input==='text'?'The photo is read offline in your browser, then '+esc(aiName)+' tidies the text. Only the text is sent. Check each card.':esc(aiName)+' transcribes the photo into the cards below. Check each one.'):(S.clue&&hostMode?'Offline reading runs in your browser and sends nothing anywhere. It reads text only, so add names, bold and pictures by hand.':S.clue?'Type each suspect below. Tap the photo to enlarge it while you type.':'Add a clue photo, or type the clues in by hand.')}</p>
       </div>
     </div>
     <div id="edlist" style="display:grid;gap:12px">${S.suspects.map(edHtml).join('')}</div>
@@ -529,7 +534,7 @@ function edHtml(s){
     <div class="r3"><label><input type="checkbox" data-f="victim" data-sid="${s.id}" ${s.victim?'checked':''}>This is the victim</label><button class="lnk" data-act="del-sus" data-sid="${s.id}">Remove</button></div>
   </div>`;
 }
-const errCopy={not_granted:'Claude was not allowed to read the photo. Type the clues in by hand.',sampling_disabled:'Claude is not available for this account. Type the clues in by hand.',rate_limited:'Too many requests just now. Wait a minute, then try again.',session_expired:'Sign in again, then try again.',image_rejected:'That photo could not be read. Try a sharper, closer shot.',refused:'Claude could not read that photo. Try another shot or type the clues in.',invalid_json:'The answer came back garbled. Tap the button to try again.',empty_completion:'Nothing came back. Try again.',host_unconfigured:'Clue reading is not set up on this site yet. Add an ANTHROPIC_API_KEY in the host settings and redeploy, or type the clues in by hand.',host_offline:'Could not reach the clue reader. Check your connection and try again.',host_error:'The clue reader failed. Try again, or type the clues in.'};
+const errCopy={not_granted:'Claude was not allowed to read the photo. Type the clues in by hand.',sampling_disabled:'Claude is not available for this account. Type the clues in by hand.',rate_limited:'Too many requests just now. Wait a minute, then try again.',session_expired:'Sign in again, then try again.',image_rejected:'That photo could not be read. Try a sharper, closer shot.',refused:'Claude could not read that photo. Try another shot or type the clues in.',invalid_json:'The answer came back garbled. Tap the button to try again.',empty_completion:'Nothing came back. Try again.',ocr_empty:'No text was found in that photo. Try a sharper, closer shot of the clue cards.',host_unconfigured:'AI reading is not set up on this site yet. Use offline reading, add an API key in the host settings and redeploy, or type the clues in by hand.',host_offline:'Could not reach the clue reader. Check your connection and try again.',host_error:'The clue reader failed. Try again, or type the clues in.'};
 function parseLoose(t){
   try{return JSON.parse(t);}catch(e){}
   const f=/```(?:json)?\s*([\s\S]*?)```/.exec(t);if(f){try{return JSON.parse(f[1]);}catch(e){}}
@@ -537,9 +542,9 @@ function parseLoose(t){
   if(a>=0&&b>a){try{return JSON.parse(t.slice(a,b+1));}catch(e){}}
   throw{code:'invalid_json'};
 }
-async function hostedRead(){
+async function hostedRead(payload){
   let res;
-  try{res=await fetch('/api/read-clues',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({image:S.clue})});}
+  try{res=await fetch('/api/read-clues',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload||{image:S.clue})});}
   catch(e){throw{code:'host_offline'};}
   if(res.status===404||res.status===405||res.status===501)throw{code:'host_unconfigured'};
   if(res.status===429)throw{code:'rate_limited'};
@@ -552,7 +557,16 @@ async function readClues(){
   btn.disabled=true;st.className='note';st.textContent='Reading the clue photo. This takes up to a minute.';
   const prompt='The attached photo shows the suspect clue cards of a Murdoku puzzle (a murder-mystery logic grid). Transcribe every card. Reply with only JSON in this shape: {"title": "puzzle title if visible, else empty string", "suspects": [{"name": "first name", "letter": "the single capital letter shown beside the name", "victim": true only for the victim card, "clue": "the clue text exactly as printed, with every word printed in bold wrapped in double asterisks", "face": [left, top, right, bottom of that card\'s small portrait picture as fractions from 0 to 1 of the whole photo width and height]}], "rules": ["each general rule or clue in the photo that does not belong to one suspect card, transcribed exactly, bold words in double asterisks"]}. Keep the order of the cards. If a card is partly hidden, include it with your best reading. Use an empty rules array when there are none.';
   try{
-    const data=sampleFn?await sampleFn.json(prompt,{images:dataToBlob(S.clue),modelTier:'default'}):await hostedRead();
+    let data;
+    if(sampleFn)data=await sampleFn.json(prompt,{images:dataToBlob(S.clue),modelTier:'default'});
+    else if(apiProvider&&apiProvider.input==='text'){
+      /* text-only provider (DeepSeek): read the photo offline first, send only the text */
+      st.textContent='Loading the text reader. The first run downloads about 5 MB.';
+      const o=await ocrRun();
+      if(!o.text.trim())throw{code:'ocr_empty'};
+      st.textContent='Asking '+apiProvider.label+' to tidy the text.';
+      data=await hostedRead({text:o.text});
+    }else data=await hostedRead();
     const list=Array.isArray(data)?data:(data&&data.suspects);
     if(!Array.isArray(list)||!list.length)throw{code:'invalid_json'};
     S.suspects=list.slice(0,12).map((s,i)=>newSuspect(i,{name:String(s.name||'').trim(),letter:String(s.letter||s.name||'').trim().charAt(0).toUpperCase(),clue:String(s.clue||'').trim(),victim:!!s.victim}));
@@ -572,6 +586,79 @@ async function readClues(){
   }catch(e){
     const n=$('#clue-status'),b=$('#readbtn');if(b)b.disabled=false;
     if(n){n.className='note err';n.textContent=errCopy[e&&e.code]||'Something went wrong while reading the photo. Try again, or type the clues in.';}
+  }
+}
+
+/* ---------- offline OCR (tesseract.js, runs in the browser) ---------- */
+/* Turn OCR text lines into suspect cards. Lines are {t,x0,y0,x1,y1}. Pure function. */
+function ocrLinesToCards(lines,W){
+  const L=lines.map(l=>({t:String(l.t||'').replace(/\s+/g,' ').trim(),x0:l.x0,y0:l.y0,x1:l.x1,y1:l.y1}))
+    .filter(l=>l.t.length>=2&&/[A-Za-z]{2}/.test(l.t)&&!/^(submit|undo|\(?place all)/i.test(l.t));
+  const rules=[],body=[];
+  L.forEach(l=>((l.x1-l.x0)>W*.55?rules:body).push(l));
+  const hs=body.map(l=>l.y1-l.y0).sort((a,b)=>a-b),mh=hs.length?hs[hs.length>>1]:20;
+  const cols=[];
+  body.slice().sort((a,b)=>a.x0-b.x0).forEach(l=>{
+    const c=cols[cols.length-1];
+    if(c&&l.x0-c.maxX0<=W*.07){c.items.push(l);c.maxX0=Math.max(c.maxX0,l.x0);}else cols.push({items:[l],maxX0:l.x0});
+  });
+  const cards=[];
+  cols.forEach(c=>{
+    c.items.sort((a,b)=>a.y0-b.y0);
+    let g=null,prev=null;
+    const isHead=t=>/^([A-Z])[\s.:\-]+([A-Z][A-Za-z'\-]{1,})$/.test(t);
+    c.items.forEach(l=>{
+      if(!g||isHead(l.t)||l.y0-prev.y1>mh*1.6){g=[];cards.push(g);}
+      g.push(l);prev=l;
+    });
+  });
+  const out=cards.map(g=>{
+    let letter='',name='',lines=g.map(l=>l.t);
+    const h=/^([A-Z])[\s.:\-]+([A-Z][A-Za-z'\-]{1,})$/.exec(lines[0]);
+    if(h){letter=h[1];name=h[2];lines=lines.slice(1);}
+    else if(lines.length>1&&/^[A-Z][a-z]{2,}$/.test(lines[0])&&!/^(She|The|He|They|Was|Not)$/.test(lines[0])){name=lines[0];letter=name[0];lines=lines.slice(1);}
+    const clue=lines.join(' ').trim();
+    return{name,letter,clue,victim:/victim/i.test(clue)};
+  }).filter(c=>c.clue||c.name);
+  return{suspects:out,rules:rules.map(l=>l.t)};
+}
+let tessP=null;
+function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=()=>rej(new Error('script'));document.head.appendChild(s);});}
+async function tessSetup(){
+  if(window.Tesseract&&tessP)return tessP;
+  let local=false;
+  try{const r=await fetch(OCR_LOCAL+'tesseract.min.js',{method:'HEAD'});local=r.ok;}catch(e){}
+  await loadScript((local?OCR_LOCAL:OCR_CDN)+'tesseract.min.js');
+  tessP={local};return tessP;
+}
+/* Run Tesseract on the clue photo. Returns {lines:[{t,x0,y0,x1,y1}], text}. Nothing leaves the browser. */
+async function ocrRun(){
+  const {local}=await tessSetup();
+  const opts={logger:m=>{if(m&&m.status){const p=m.progress!=null?' '+Math.round(m.progress*100)+'%':'';const el=$('#clue-status');if(el)el.textContent=({'recognizing text':'Reading the photo','loading language traineddata':'Loading language data'}[m.status]||'Working')+p;}}};
+  if(local)Object.assign(opts,{workerPath:OCR_LOCAL+'worker.min.js',corePath:OCR_LOCAL,langPath:OCR_LOCAL+'lang/'});
+  const worker=await Tesseract.createWorker('eng',1,opts);
+  try{
+    const {data}=await worker.recognize(S.clue);
+    let raw=data.lines;
+    if(!raw&&data.blocks)raw=data.blocks.flatMap(b=>(b.paragraphs||[]).flatMap(p=>p.lines||[]));
+    const lines=(raw||[]).filter(l=>l.confidence==null||l.confidence>=35).map(l=>({t:l.text,x0:l.bbox.x0,y0:l.bbox.y0,x1:l.bbox.x1,y1:l.bbox.y1}));
+    return{lines,text:lines.map(l=>String(l.t||'').trim()).filter(Boolean).join('\n')};
+  }finally{try{await worker.terminate();}catch(_){}}
+}
+async function readOcr(){
+  const st=$('#clue-status'),b1=$('#readbtn'),b2=$('#ocrbtn');if(!S.clue||!clueImg)return;
+  [b1,b2].forEach(b=>{if(b)b.disabled=true;});st.className='note';st.textContent='Loading the text reader. The first run downloads about 5 MB.';
+  try{
+    const {lines}=await ocrRun();
+    const res=ocrLinesToCards(lines,clueImg.naturalWidth);
+    if(!res.suspects.length&&!res.rules.length)throw{code:'ocr_empty'};
+    S.suspects=res.suspects.slice(0,12).map((s,i)=>newSuspect(i,s));
+    S.rules=res.rules.map(t=>({id:'r'+(S.nid++),text:t,done:false}));
+    save();render();
+    const n=$('#clue-status');if(n){n.className='note ok';n.textContent='Read '+S.suspects.length+' cards offline. Check the text against the photo, then add names and pictures where they are missing.';}
+  }catch(e){
+    [b1,b2].forEach(b=>{if(b)b.disabled=false;});
+    const n=$('#clue-status');if(n){n.className='note err';n.textContent=errCopy[e&&e.code]||'The offline reader could not load. Check your connection for the first run, or type the clues in by hand.';}
   }
 }
 
@@ -727,6 +814,7 @@ document.addEventListener('click',e=>{
     case 'zoom':$('#viewer').classList.toggle('z');break;
     case 'close-viewer':$('#viewer').hidden=true;break;
     case 'read-clues':readClues();break;
+    case 'read-ocr':readOcr();break;
     case 'add-sus':S.suspects.push(newSuspect(S.suspects.length));save();rClues();setTimeout(()=>{const l=$$('#edlist .ed');if(l.length)l[l.length-1].scrollIntoView({block:'center'});},30);break;
     case 'del-sus':S.suspects=S.suspects.filter(s=>s.id!==sid);delete S.play.perm[sid];for(const t in S.play.temp){S.play.temp[t]=S.play.temp[t].filter(x=>x!==sid);if(!S.play.temp[t].length)delete S.play.temp[t];}if(S.sel===sid)S.sel=null;save();rClues();break;
     case 'to-play':if(!S.suspects.length){toast('Add at least one suspect.');break;}S.suspects.forEach(s=>{if(!s.letter&&s.name)s.letter=s.name[0].toUpperCase();});go('play');break;
@@ -795,6 +883,10 @@ if(window.claude&&window.claude.use){
     try{const l=await fn.limits();canImages=!!(l&&l.images);}catch(e){canImages=false;}
     if(S.step==='clues')rClues();
   }).catch(()=>{});
+}
+if(hostMode){
+  fetch('/api/read-clues').then(r=>r.ok?r.json():null).then(j=>{if(j&&j.provider){apiProvider={id:j.provider,label:j.label||'AI',input:j.input||'image'};if(S.step==='clues')rClues();}}).catch(()=>{});
+  if(S.step==='clues')rClues();
 }
 window.addEventListener('resize',()=>{if(S.step==='grid')setupGrid();});
 })();

@@ -23,15 +23,27 @@ Open `index.html` in a browser, or serve the folder with any static host such as
 
 `page.html` is the source. It is also the file published as a Claude Artifact. After changing it, run `python3 build.py` to regenerate `index.html`, which wraps the source in a full HTML document (doctype, charset, viewport and a small reset) so it works on ordinary hosts.
 
-## Reading clues with Claude
+## Reading the clue photo
 
-The "Read clues with Claude" button transcribes the clue photo, crops each suspect's picture and picks up general rules.
+There are three ways to fill in the clue cards. Typing them by hand always works.
 
-- **Inside a Claude Artifact** it uses the artifact's built-in Claude access. Nothing to set up.
-- **On Vercel or any other host** it calls `/api/read-clues`, a serverless function in `api/read-clues.js`. To turn it on, add an environment variable `ANTHROPIC_API_KEY` in the Vercel project (Settings, Environment Variables) and redeploy. Set `ANTHROPIC_MODEL` to use a different model; the default is `claude-sonnet-5-5`. Each read uses a little of your API credit.
-- **Without the key** the page shows a short message and you type the clues in by hand. Everything else works the same.
+**1. Offline reading, no AI.** The "Read clues offline" button runs the Tesseract text reader inside your browser. The photo never leaves your device. It reads text only, so it will not know which words are bold and it cannot crop suspect pictures; add those by hand (`**bold**` markup, and the picture crop tool). It splits the text into cards by looking for a "letter + name" line, and treats wide lines that span the page as general rules. Check each card against the photo.
 
-The key stays on the server and is never sent to the browser. The function only accepts calls from the site's own pages and a fixed prompt, but anyone who can open your site can still trigger reads. Use Vercel's deployment protection or a spending limit on the key if the site is public. The prompt in `api/read-clues.js` mirrors the one in `page.html`; change both together.
+The first run downloads the reader (about 5 MB) from jsDelivr. To make it work with no network at all, copy `tesseract.min.js`, `worker.min.js`, `tesseract-core*.wasm*` and `lang/eng.traineddata.gz` from the `tesseract.js` and `tesseract.js-core` npm packages into `vendor/tesseract/`; the page uses that folder when it exists.
+
+**2. An AI provider through your own key.** On Vercel or any other host, a serverless function (`api/read-clues.js`) reads the photo with Claude, Gemini or DeepSeek. Add one key in the Vercel project (Settings, Environment Variables) and redeploy:
+
+| Provider | Variable | Model variable | Default model | What it receives |
+| --- | --- | --- | --- | --- |
+| Claude | `ANTHROPIC_API_KEY` | `ANTHROPIC_MODEL` | `claude-sonnet-5-5` | the photo |
+| Gemini | `GEMINI_API_KEY` | `GEMINI_MODEL` | `gemini-3.8-flash` | the photo |
+| DeepSeek | `DEEPSEEK_API_KEY` | `DEEPSEEK_MODEL` | `deepseek-flash` | offline OCR text only |
+
+If several keys are set, `CLUE_PROVIDER` (`anthropic`, `gemini` or `deepseek`) chooses; otherwise the first key found in the order above is used. Claude and Gemini also crop the suspect pictures and keep bold words. DeepSeek's current model has no documented image input, so the page reads the photo offline first and sends DeepSeek only the text to tidy up. Model names change often, so set the model variable if a default stops working.
+
+**3. Inside a Claude Artifact** the button uses the artifact's built-in Claude access with nothing to set up. Offline reading is not available there.
+
+Keys stay on the server and are never sent to the browser. The function accepts only calls from the site's own pages and uses a fixed prompt, but anyone who can open your site can still trigger reads. Use Vercel's deployment protection or a spending limit on the key if the site is public. The prompts in `api/read-clues.js` mirror the one in `page.html`; change them together.
 
 ## Limits
 

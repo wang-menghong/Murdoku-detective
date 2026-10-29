@@ -1,0 +1,5 @@
+{
+  "functions": {
+    "api/read-clues.js": { "maxDuration": 60 }
+  }
+}
