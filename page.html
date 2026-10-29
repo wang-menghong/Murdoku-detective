@@ -1,0 +1,783 @@
+<title>Murdoku Helper</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@700;800&family=Caveat:wght@700&family=DM+Sans:wght@400;500;700&display=swap">
+<style>
+/* Layout: one column, case-file header with four step pills; the Solve step is a board over suspect cards with a fixed tool dock like the original app. */
+:root{
+  --bg:#efeef6; --card:#fbfaff; --ink:#17151f; --ink2:#5d5a73; --line:#17151f;
+  --accent:#2f8fff; --accent-soft:#d8e9ff; --good:#17855a; --bad:#d6313a; --soft:#e2e0ee;
+  --btn:#ffffff; --btn-ink:#17151f; --primary:#17151f; --primary-ink:#f7f6ff;
+  --display:'Bricolage Grotesque','Trebuchet MS',system-ui,sans-serif;
+  --body:'DM Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --script:'Caveat','Segoe Script','Bradley Hand',cursive;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#15141d; --card:#211f2d; --ink:#f2f0fa; --ink2:#aaa7c2; --line:#5a5875;
+  --accent:#5aa9ff; --accent-soft:#1d3552; --good:#4cc791; --bad:#ff6b73; --soft:#2c2a3b;
+  --btn:#2a2839; --btn-ink:#f2f0fa; --primary:#f2f0fa; --primary-ink:#15141d; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#15141d; --card:#211f2d; --ink:#f2f0fa; --ink2:#aaa7c2; --line:#5a5875;
+  --accent:#5aa9ff; --accent-soft:#1d3552; --good:#4cc791; --bad:#ff6b73; --soft:#2c2a3b;
+  --btn:#2a2839; --btn-ink:#f2f0fa; --primary:#f2f0fa; --primary-ink:#15141d; color-scheme:dark}
+
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0}
+[hidden]{display:none!important}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font:500 15px/1.45 var(--body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 28px;
+  -webkit-text-size-adjust:100%}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+body[data-step="play"]{padding-bottom:132px}
+button{font:inherit;color:inherit}
+h1,h2{font-family:var(--display);font-weight:800;letter-spacing:-.01em;text-wrap:balance;margin:0}
+h2{font-size:24px;line-height:1.1}
+p{margin:0}
+.wrap{max-width:560px;margin:0 auto}
+
+/* header */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:9;background:var(--bg);padding:10px 0 8px;max-width:560px;margin:0 auto}
+.bar{display:flex;align-items:center;gap:8px}
+.ibtn{flex:none;width:42px;height:42px;border-radius:50%;border:2px solid var(--line);background:var(--btn);color:var(--btn-ink);display:grid;place-items:center;padding:0;cursor:pointer}
+.ibtn svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.ibtn.plain{border-color:transparent;background:transparent}
+#title{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font:800 20px/1.2 var(--display);padding:6px 2px;text-overflow:ellipsis}
+#title::placeholder{color:var(--ink2);font-weight:700}
+#title:focus-visible{outline:2px solid var(--accent);border-radius:6px}
+#timer{font:700 15px var(--body);font-variant-numeric:tabular-nums;color:var(--ink2);padding:0 2px}
+.steps{display:flex;gap:6px;margin-top:8px}
+.pill-step{flex:1;min-width:0;height:34px;border-radius:999px;border:2px solid var(--line);background:var(--btn);color:var(--btn-ink);font:700 12px var(--body);letter-spacing:.06em;text-transform:uppercase;cursor:pointer;padding:0 4px}
+.pill-step.on{background:var(--primary);color:var(--primary-ink)}
+.pill-step:disabled{opacity:.4;cursor:default}
+
+/* panes */
+.pane{max-width:560px;margin:0 auto;padding-top:14px;display:flex;flex-direction:column;gap:14px}
+.lede{color:var(--ink2)}
+.btn{min-height:50px;padding:0 20px;border-radius:14px;border:2px solid var(--line);background:var(--btn);color:var(--btn-ink);font:800 15px var(--display);letter-spacing:.02em;cursor:pointer;box-shadow:0 3px 0 var(--line);display:inline-flex;align-items:center;justify-content:center;gap:8px;text-align:center}
+.btn:active{transform:translateY(2px);box-shadow:0 1px 0 var(--line)}
+.btn.primary{background:var(--primary);color:var(--primary-ink)}
+.btn.accent{background:var(--accent);color:#06203d;border-color:#06203d}
+.btn.ghost{box-shadow:none;border-style:dashed}
+.btn:disabled{opacity:.45;cursor:default;box-shadow:none}
+.btn:focus-visible,.ibtn:focus-visible,.pill-step:focus-visible,.cell:focus-visible,.card:focus-visible,.dk:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row>.btn{flex:1 1 140px}
+
+.drops{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.drop{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:190px;padding:12px;border:2px dashed var(--line);border-radius:16px;background:var(--card);text-align:center;cursor:pointer;overflow:hidden}
+.drop.has{border-style:solid;box-shadow:0 3px 0 var(--line)}
+.drop img{max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;border:2px solid var(--line)}
+.drop b{font:800 16px var(--display)}
+.drop small{color:var(--ink2);font-size:13px}
+.drop svg{width:34px;height:34px;stroke:var(--ink2);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.how{display:grid;gap:10px;padding:14px;border-radius:16px;background:var(--card);border:2px solid var(--soft);counter-reset:h}
+.how div{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start}
+.how div::before{counter-increment:h;content:counter(h);width:28px;height:28px;border-radius:50%;background:var(--primary);color:var(--primary-ink);display:grid;place-items:center;font:800 14px var(--display)}
+.how b{font-weight:700}
+
+/* grid step */
+.gridwrap{position:relative;border:3px solid var(--line);border-radius:10px;overflow:hidden;background:#000;line-height:0}
+#gc{display:block;touch-action:none;cursor:crosshair}
+.loupe{position:absolute;top:8px;width:110px;height:110px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 2px #000,0 4px 12px rgba(0,0,0,.5);pointer-events:none}
+.stepper{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 8px 8px 14px;border-radius:14px;background:var(--card);border:2px solid var(--soft)}
+.stepper b{font-weight:700}
+.stepper .ctl{display:flex;align-items:center;gap:8px}
+.stepper .ctl button{width:42px;height:42px;border-radius:12px;border:2px solid var(--line);background:var(--btn);font:800 20px var(--display);cursor:pointer}
+.stepper output{min-width:28px;text-align:center;font:800 20px var(--display);font-variant-numeric:tabular-nums}
+.steppers{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+/* clue step */
+.cluebox{display:grid;grid-template-columns:104px 1fr;gap:12px;align-items:start}
+.thumb{border:2px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card);padding:0;cursor:zoom-in;line-height:0}
+.thumb img{width:100%;height:120px;object-fit:cover;object-position:top}
+.cluebox .btn{min-height:44px;font-size:14px;width:100%}
+.cluebox .col{display:grid;gap:8px}
+.note{font-size:13px;color:var(--ink2)}
+.note.err{color:var(--bad);font-weight:700}
+.note.ok{color:var(--good);font-weight:700}
+.ed{display:grid;gap:8px;padding:12px;border-radius:16px;background:var(--card);border:2px solid var(--line);border-left:8px solid var(--sc)}
+.ed .r1{display:flex;gap:8px}
+.ed input[type=text],.ed textarea{width:100%;border:2px solid var(--soft);border-radius:10px;background:var(--bg);color:var(--ink);padding:9px 10px;font:500 15px/1.35 var(--body)}
+.ed input:focus-visible,.ed textarea:focus-visible{outline:2px solid var(--accent);border-color:var(--accent)}
+.ed input.lt{width:52px;flex:none;padding-left:4px;padding-right:4px;text-align:center;font:800 20px var(--display);text-transform:uppercase;background:var(--sc);color:#17151f;border-color:var(--line)}
+.ed textarea{resize:vertical;min-height:64px}
+.ed .r1{align-items:center}
+.ed .r1 input[type=text]:not(.lt){flex:1 1 0;width:auto;min-width:0}
+.ed,.ed .r1,.ed .r3{min-width:0;max-width:100%}
+.ed .r3{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ed label{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px}
+.ed label input{width:20px;height:20px;accent-color:var(--accent)}
+.lnk{border:0;background:transparent;color:var(--bad);font:700 14px var(--body);padding:8px;cursor:pointer;text-decoration:underline}
+
+/* play */
+.board{position:relative;width:100%;border:4px solid #000;border-radius:6px;background:#e9e6dc;overflow:hidden;box-shadow:0 4px 0 rgba(0,0,0,.35)}
+.board canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.cells{position:absolute;inset:0;display:grid}
+.cell{position:relative;border:1px solid rgba(0,0,0,.3);background:transparent;padding:0;margin:0;cursor:pointer;-webkit-appearance:none;appearance:none;touch-action:manipulation;min-width:0;min-height:0;overflow:hidden}
+.cell.dead::before{content:"";position:absolute;inset:0;background:rgba(255,255,255,.4)}
+.cell .x{position:absolute;left:18%;top:18%;width:64%;height:64%;fill:none;stroke:rgba(23,21,31,.5);stroke-width:1.3;stroke-linecap:round}
+.cell.man .x{left:12%;top:12%;width:76%;height:76%;stroke:#17151f;stroke-width:2;filter:drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff)}
+.mk{position:absolute;left:50%;top:50%;width:74%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;background:var(--sc);border:3px solid #17151f;display:grid;place-items:center;font:800 clamp(15px,6vw,30px)/1 var(--display);color:#17151f;box-shadow:0 2px 0 rgba(0,0,0,.45)}
+.mk.bad{border-color:var(--bad);box-shadow:0 0 0 3px #fff,0 0 0 6px var(--bad)}
+.tmps{position:absolute;inset:6%;display:flex;flex-wrap:wrap;align-content:center;justify-content:center;gap:3px}
+.tm{width:44%;aspect-ratio:1;border-radius:50%;background:var(--sc);border:2px dashed #17151f;display:grid;place-items:center;font:800 clamp(9px,3.2vw,15px)/1 var(--display);color:#17151f;opacity:.92}
+.tmps.one .tm{width:66%;font-size:clamp(13px,5vw,24px)}
+.tm.more{background:#fff}
+.status{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
+.chip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:999px;border:2px solid var(--line);background:var(--card);font:700 13px var(--body)}
+.chip.good{background:var(--good);color:#04180f;border-color:var(--good)}
+.hintline{color:var(--ink2);font-size:14px;margin-top:8px}
+.result{margin-top:10px;padding:10px 12px;border-radius:12px;border:2px solid;font-weight:700}
+.result.ok{border-color:var(--good);color:var(--good)}
+.result.no{border-color:var(--bad);color:var(--bad)}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.card{position:relative;display:grid;grid-template-columns:48px 1fr;gap:8px;align-items:start;padding:10px 10px 12px;border-radius:14px;border:2px solid var(--line);border-left:8px solid var(--sc);background:var(--card);cursor:pointer;min-width:0;text-align:left}
+.card.sel{outline:4px solid var(--accent);outline-offset:2px}
+.card.vic{background:linear-gradient(0deg,var(--card),var(--card)),var(--card)}
+.card .av{width:48px;height:48px}
+.card .nm{font:700 22px/1 var(--script);display:flex;align-items:baseline;gap:6px;min-width:0}
+.card .nm i{font:800 15px var(--display);font-style:normal;color:var(--sc);filter:saturate(1.2) brightness(.8)}
+.card .nm span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .cl{font-size:13.5px;line-height:1.35;margin-top:4px;overflow-wrap:anywhere}
+.card .cl b{font-weight:800}
+.card.dn .cl{text-decoration:line-through;opacity:.55}
+.card .tag{display:inline-block;margin-top:4px;font:800 10px var(--body);letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border-radius:6px;background:var(--ink);color:var(--bg)}
+.card .dnb{position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;border:2px solid var(--line);background:var(--btn);display:grid;place-items:center;padding:0;cursor:pointer}
+.card .dnb svg{width:14px;height:14px;stroke:var(--good);stroke-width:3.4;fill:none;stroke-linecap:round;stroke-linejoin:round;opacity:0}
+.card.dn .dnb{background:var(--good);border-color:var(--good)}
+.card.dn .dnb svg{opacity:1;stroke:#fff}
+
+img.av{object-fit:cover;object-position:top;border-radius:12px;border:2px solid var(--line);background:var(--sc)}
+.pic{position:relative;flex:none;width:56px;height:56px;border-radius:14px;border:2px solid var(--line);background:var(--sc);padding:0;overflow:hidden;cursor:pointer;display:block}
+.pic .av{width:100%;height:100%;display:block;border:0;border-radius:0}
+.pic.empty::after{content:"+";position:absolute;right:2px;bottom:2px;width:18px;height:18px;border-radius:50%;background:var(--primary);color:var(--primary-ink);font:800 14px/18px var(--display);text-align:center}
+.cropbox{max-height:46vh;overflow:auto;border:3px solid var(--line);border-radius:10px;line-height:0;background:#000;-webkit-overflow-scrolling:touch}
+.cropbox canvas{display:block;touch-action:none;cursor:grab}
+.sheet .pn{overscroll-behavior:contain}
+.cropbox{overscroll-behavior:contain}
+.sec{font:800 13px var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);margin:16px 0 0}
+.rules{display:grid;gap:10px;margin-top:8px}
+.rule{position:relative;padding:10px 46px 12px 12px;border-radius:14px;border:2px dashed var(--line);background:var(--card)}
+.rule .tag{display:inline-block;font:800 10px var(--body);letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border-radius:6px;background:var(--ink);color:var(--bg)}
+.rule .cl{font-size:14.5px;line-height:1.4;margin-top:4px;overflow-wrap:anywhere}
+.rule .cl b{font-weight:800}
+.rule.dn .cl{text-decoration:line-through;opacity:.55}
+.rule .dnb{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;border:2px solid var(--line);background:var(--btn);display:grid;place-items:center;padding:0;cursor:pointer}
+.rule .dnb svg{width:15px;height:15px;stroke:var(--good);stroke-width:3.4;fill:none;stroke-linecap:round;stroke-linejoin:round;opacity:0}
+.rule.dn .dnb{background:var(--good);border-color:var(--good)}
+.rule.dn .dnb svg{opacity:1;stroke:#fff}
+.ed.rl{border-left-width:2px}
+
+/* dock */
+.dock{position:fixed;left:0;right:0;bottom:0;z-index:8;background:var(--bg);border-top:2px solid var(--line);
+  padding:10px max(16px,env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.dock .in{max-width:560px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.dk{height:60px;border-radius:14px;border:2px solid var(--line);background:var(--btn);color:var(--btn-ink);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:0;cursor:pointer;font:800 10.5px var(--body);letter-spacing:.07em;text-transform:uppercase;min-width:0}
+.dk svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.dk[aria-pressed="true"]{background:var(--accent);color:#06203d;border-color:#06203d}
+.dk.pen[aria-pressed="true"]{background:var(--primary);color:var(--primary-ink);border-color:var(--primary)}
+.dk:disabled{opacity:.4;cursor:default}
+.dk small{font-size:10px;font-weight:700;letter-spacing:0;text-transform:none;opacity:.85}
+
+/* sheets, viewer, toast */
+.sheet{position:fixed;inset:0;z-index:20;background:rgba(10,9,16,.55);display:flex;align-items:flex-end;justify-content:center}
+.sheet .pn{width:100%;max-width:560px;background:var(--bg);border:2px solid var(--line);border-bottom:0;border-radius:20px 20px 0 0;padding:18px max(16px,env(safe-area-inset-left,0px)) calc(18px + env(safe-area-inset-bottom,0px));display:grid;gap:12px;max-height:86%;overflow:auto}
+.sheet h2{font-size:22px}
+.viewer{position:fixed;inset:0;z-index:30;background:#0c0b12;display:flex;flex-direction:column}
+.viewer .vb{display:flex;gap:10px;justify-content:flex-end;padding:calc(10px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px))}
+.viewer .vb .btn{min-height:42px;font-size:14px;padding:0 16px}
+.viewer .vs{flex:1;overflow:auto;-webkit-overflow-scrolling:touch}
+.viewer img{display:block;width:100%;height:auto}
+.viewer.z img{width:240%;max-width:none}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(112px + env(safe-area-inset-bottom,0px));z-index:25;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:700;font-size:14px;max-width:calc(100% - 32px);text-align:center;box-shadow:0 6px 18px rgba(0,0,0,.3)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@media (max-width:360px){.cards{grid-template-columns:1fr}.drops{grid-template-columns:1fr}}
+</style>
+
+<header class="top">
+  <div class="bar">
+    <button class="ibtn plain" id="back" data-act="back" aria-label="Previous step"><svg viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></svg></button>
+    <input id="title" type="text" maxlength="48" placeholder="Name this case" autocomplete="off" aria-label="Case name">
+    <span id="timer" hidden>0:00</span>
+    <button class="ibtn" data-act="help" aria-label="How it works"><svg viewBox="0 0 24 24"><path d="M9.5 9a2.6 2.6 0 1 1 3.6 2.4c-.8.4-1.1.9-1.1 1.8M12 17.2v.1"/></svg></button>
+    <button class="ibtn" data-act="gear" aria-label="Case menu"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/></svg></button>
+  </div>
+  <nav class="steps" aria-label="Steps">
+    <button class="pill-step" data-go="upload">Photos</button>
+    <button class="pill-step" data-go="grid">Grid</button>
+    <button class="pill-step" data-go="clues">Clues</button>
+    <button class="pill-step" data-go="play">Solve</button>
+  </nav>
+</header>
+
+<main class="wrap">
+  <section id="s-upload" class="pane" hidden></section>
+  <section id="s-grid" class="pane" hidden></section>
+  <section id="s-clues" class="pane" hidden></section>
+  <section id="s-play" class="pane" hidden></section>
+</main>
+
+<div class="dock" id="dock" hidden>
+  <div class="in">
+    <button class="dk" id="d-cross" data-act="tool-cross" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 5l14 14M19 5L5 19"/></svg>Cross</button>
+    <button class="dk" id="d-erase" data-act="tool-erase" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M7 20h11M4.5 13.5l8-8a2.1 2.1 0 0 1 3 0l3 3a2.1 2.1 0 0 1 0 3l-7 7H8.5l-4-4a1.1 1.1 0 0 1 0-1.4z"/></svg>Erase</button>
+    <button class="dk" id="d-undo" data-act="undo"><svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5M4 12h10a6 6 0 0 1 0 12h-2" transform="translate(0 -3)"/></svg>Undo</button>
+    <button class="dk" id="d-mode" data-act="mode" aria-pressed="false"></button>
+    <button class="dk" id="d-check" data-act="check"><svg viewBox="0 0 24 24"><path d="M4.5 12.5l5 5 10-11"/></svg>Check<small id="d-count"></small></button>
+  </div>
+</div>
+
+<div class="sheet" id="sheet" hidden><div class="pn" id="sheet-body" role="dialog" aria-modal="true"></div></div>
+<div class="viewer" id="viewer" hidden>
+  <div class="vb"><button class="btn" data-act="zoom">Zoom</button><button class="btn primary" data-act="close-viewer">Close</button></div>
+  <div class="vs"><img id="vimg" alt="Uploaded photo"></div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+(()=>{'use strict';
+/* ---------- constants and helpers ---------- */
+const COLORS=['#6cc7be','#93a0f0','#b995dd','#f0a0a8','#f0b85a','#8fcf74','#6cb8ec','#ef9470','#d4d36a'];
+const STEPS=['upload','grid','clues','play'];
+const KEY='murdoku-helper-v1';
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtClue=s=>esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>');
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const bil=(q,u,v)=>[(1-v)*((1-u)*q[0][0]+u*q[1][0])+v*((1-u)*q[3][0]+u*q[2][0]),(1-v)*((1-u)*q[0][1]+u*q[1][1])+v*((1-u)*q[3][1]+u*q[2][1])];
+
+/* ---------- state ---------- */
+function fresh(){return{step:'upload',title:'',map:null,clue:null,quad:null,rows:6,cols:6,suspects:[],rules:[],play:{perm:{},temp:{},cross:[]},sel:null,tool:'place',mode:'pencil',elapsed:0,nid:1};}
+let S=fresh();
+try{const raw=localStorage.getItem(KEY);if(raw)S=Object.assign(fresh(),JSON.parse(raw));}catch(e){}
+let hist=[],result=null,mapImg=null,clueImg=null,boardCanvas=null,boardDirty=true,sampleFn=null,canImages=false,gv=null;
+let saveT=0;
+function save(){clearTimeout(saveT);saveT=setTimeout(()=>{try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){try{localStorage.setItem(KEY,JSON.stringify(Object.assign({},S,{map:null,clue:null})));}catch(_){}}},250);}
+function loadImg(src){return new Promise(r=>{if(!src)return r(null);const i=new Image();i.onload=()=>r(i);i.onerror=()=>r(null);i.src=src;});}
+async function fileToData(file,max=1500){
+  const url=URL.createObjectURL(file);
+  try{
+    const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=url;});
+    const k=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
+    const c=document.createElement('canvas');c.width=Math.round(img.naturalWidth*k);c.height=Math.round(img.naturalHeight*k);
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+    return c.toDataURL('image/jpeg',.86);
+  }finally{URL.revokeObjectURL(url);}
+}
+function dataToBlob(d){const m=/^data:([^;]+);base64,(.*)$/.exec(d);const bin=atob(m[2]);const u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return new Blob([u],{type:m[1]});}
+let toastT=0;
+function toast(msg){const t=$('#toast');t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>{t.hidden=true;},2200);}
+
+/* ---------- grid detection (pure, testable) ---------- */
+function edge(p,a,b,thr,fromEnd){
+  let i=fromEnd?b:a;const st=fromEnd?-1:1;
+  while(i>=a&&i<=b&&p[i]<=thr)i+=st;
+  if(i<a||i>b)return null;
+  let j=i;while(j+st>=a&&j+st<=b&&p[j+st]>thr)j+=st;
+  return(i+j)/2;
+}
+function peak(p,x){let m=0;const c=Math.round(x);for(let d=-2;d<=2;d++){const i=c+d;if(i>=0&&i<p.length&&p[i]>m)m=p[i];}return m;}
+function scoreN(p,a,b,n){
+  const step=(b-a)/n;let on=0,off=0;
+  for(let k=1;k<n;k++)on+=peak(p,a+k*step);
+  for(let k=0;k<n;k++)off+=peak(p,a+(k+.5)*step);
+  return on/(n-1)-off/n;
+}
+function detectCore(dark,W,H){
+  let box=[0,0,W-1,H-1],cp,rp;
+  const prof=()=>{
+    const bx0=Math.round(box[0]),by0=Math.round(box[1]),bx1=Math.round(box[2]),by1=Math.round(box[3]);
+    cp=new Float32Array(W);rp=new Float32Array(H);
+    for(let y=by0;y<=by1;y++){const o=y*W;for(let x=bx0;x<=bx1;x++){if(dark[o+x]){cp[x]++;rp[y]++;}}}
+    const bh=by1-by0+1,bw=bx1-bx0+1;let mc=0,mr=0;
+    for(let x=bx0;x<=bx1;x++){cp[x]/=bh;if(cp[x]>mc)mc=cp[x];}
+    for(let y=by0;y<=by1;y++){rp[y]/=bw;if(rp[y]>mr)mr=rp[y];}
+    return{bx0,by0,bx1,by1,mc,mr};
+  };
+  for(let pass=0;pass<3;pass++){
+    const o=prof();
+    if(o.mc<.15||o.mr<.15)return null;
+    const nx0=edge(cp,o.bx0,o.bx1,o.mc*.7,false),nx1=edge(cp,o.bx0,o.bx1,o.mc*.7,true);
+    const ny0=edge(rp,o.by0,o.by1,o.mr*.7,false),ny1=edge(rp,o.by0,o.by1,o.mr*.7,true);
+    if(nx0==null||nx1==null||ny0==null||ny1==null||nx1-nx0<W*.2||ny1-ny0<H*.08){if(pass===0)return null;break;}
+    box=[nx0,ny0,nx1,ny1];
+  }
+  /* Murdoku boards are square: trust the width, and snap the bottom edge to the strong line nearest to it */
+  {
+    const w=box[2]-box[0],xa=Math.round(box[0]),xb=Math.round(box[2]),ya=Math.round(box[1]);
+    const yEnd=Math.min(H-1,Math.round(ya+w*1.15)),line=new Float32Array(H);let mx=0;
+    for(let y=Math.max(0,ya);y<=yEnd;y++){let c=0;const o=y*W;for(let x=xa;x<=xb;x++)if(dark[o+x])c++;line[y]=c/(xb-xa+1);if(line[y]>mx)mx=line[y];}
+    let y1=box[1]+w,bd=w*.12+1,y=Math.max(0,ya);
+    while(y<=yEnd){
+      if(line[y]>mx*.7){let j=y;while(j+1<=yEnd&&line[j+1]>mx*.7)j++;const c=(y+j)/2;if(Math.abs(c-(box[1]+w))<bd){bd=Math.abs(c-(box[1]+w));y1=c;}y=j+1;}else y++;
+    }
+    box[3]=Math.min(H-1,y1);
+  }
+  prof();
+  let best=6,bs=-9;
+  for(let n=4;n<=10;n++){
+    const s=scoreN(cp,box[0],box[2],n)+scoreN(rp,box[1],box[3],n);
+    if(s>bs+1e-6){bs=s;best=n;}
+  }
+  return{x0:box[0],y0:box[1],x1:box[2],y1:box[3],n:best,score:bs};
+}
+function runDetect(){
+  if(!mapImg)return;
+  const W=Math.min(500,mapImg.naturalWidth),k=W/mapImg.naturalWidth,H=Math.round(mapImg.naturalHeight*k);
+  const c=document.createElement('canvas');c.width=W;c.height=H;
+  const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(mapImg,0,0,W,H);
+  const d=x.getImageData(0,0,W,H).data,dark=new Uint8Array(W*H);
+  for(let i=0;i<W*H;i++){const l=.299*d[i*4]+.587*d[i*4+1]+.114*d[i*4+2];dark[i]=l<100?1:0;}
+  const r=detectCore(dark,W,H),iw=mapImg.naturalWidth,ih=mapImg.naturalHeight;
+  if(r){S.quad=[[r.x0/k,r.y0/k],[r.x1/k,r.y0/k],[r.x1/k,r.y1/k],[r.x0/k,r.y1/k]];S.cols=S.rows=r.n;S.autoOk=true;}
+  else{S.quad=[[iw*.1,ih*.1],[iw*.9,ih*.1],[iw*.9,ih*.9],[iw*.1,ih*.9]];S.autoOk=false;}
+  boardDirty=true;save();
+}
+
+/* ---------- rectified board ---------- */
+function affine(s,d){
+  const x0=s[0][0],y0=s[0][1],x1=s[1][0],y1=s[1][1],x2=s[2][0],y2=s[2][1];
+  const det=x0*(y1-y2)-y0*(x1-x2)+(x1*y2-x2*y1);
+  if(Math.abs(det)<1e-9)return null;
+  const solve=(a0,a1,a2)=>[
+    (a0*(y1-y2)-y0*(a1-a2)+(a1*y2-a2*y1))/det,
+    (x0*(a1-a2)-a0*(x1-x2)+(x1*a2-x2*a1))/det,
+    (x0*(y1*a2-y2*a1)-y0*(x1*a2-x2*a1)+a0*(x1*y2-x2*y1))/det];
+  const u=solve(d[0][0],d[1][0],d[2][0]),v=solve(d[0][1],d[1][1],d[2][1]);
+  return[u[0],v[0],u[1],v[1],u[2],v[2]];
+}
+function tri(ctx,img,s,d){
+  const m=affine(s,d);if(!m)return;
+  const cx=(d[0][0]+d[1][0]+d[2][0])/3,cy=(d[0][1]+d[1][1]+d[2][1])/3;
+  ctx.save();ctx.beginPath();
+  d.forEach((p,i)=>{const dx=p[0]-cx,dy=p[1]-cy,l=Math.hypot(dx,dy)||1,x=p[0]+dx/l*.8,y=p[1]+dy/l*.8;i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
+  ctx.closePath();ctx.clip();ctx.setTransform(m[0],m[1],m[2],m[3],m[4],m[5]);ctx.drawImage(img,0,0);ctx.restore();
+}
+function buildBoard(){
+  const cs=120,cv=document.createElement('canvas');cv.width=S.cols*cs;cv.height=S.rows*cs;
+  const ctx=cv.getContext('2d');ctx.fillStyle='#e9e6dc';ctx.fillRect(0,0,cv.width,cv.height);
+  if(mapImg&&S.quad){
+    for(let r=0;r<S.rows;r++)for(let c=0;c<S.cols;c++){
+      const u0=c/S.cols,u1=(c+1)/S.cols,v0=r/S.rows,v1=(r+1)/S.rows;
+      const s=[bil(S.quad,u0,v0),bil(S.quad,u1,v0),bil(S.quad,u1,v1),bil(S.quad,u0,v1)];
+      const d=[[c*cs,r*cs],[(c+1)*cs,r*cs],[(c+1)*cs,(r+1)*cs],[c*cs,(r+1)*cs]];
+      tri(ctx,mapImg,[s[0],s[1],s[2]],[d[0],d[1],d[2]]);tri(ctx,mapImg,[s[0],s[2],s[3]],[d[0],d[2],d[3]]);
+    }
+  }
+  boardCanvas=cv;boardDirty=false;
+}
+
+/* ---------- sample case (drawn in code) ---------- */
+function sampleMap(){
+  const cv=document.createElement('canvas');cv.width=cv.height=640;const x=cv.getContext('2d');
+  x.fillStyle='#f7f3ea';x.fillRect(0,0,640,640);
+  const o=20,cs=100;
+  const rooms=[['Dining Room',0,0,3,4,'#e6d5b8'],['Bedroom',3,0,3,2,'#fbe9a0'],['Kitchen',3,2,3,2,'#f6c99a'],['Porch',0,4,2,2,'#e0c29a'],['Front Yard',2,4,4,2,'#a8ecd2']];
+  rooms.forEach(r=>{x.fillStyle=r[5];x.fillRect(o+r[1]*cs,o+r[2]*cs,r[3]*cs,r[4]*cs);});
+  x.fillStyle='#fff3b8';[[3.2,0.25,1.6,0.5],[3.15,2.2,1.7,.6],[0.3,4.2,1.3,.55]].forEach(f=>{x.fillRect(o+f[0]*cs,o+f[1]*cs,f[2]*cs,f[3]*cs);x.strokeStyle='#b89a3a';x.lineWidth=3;x.strokeRect(o+f[0]*cs,o+f[1]*cs,f[2]*cs,f[3]*cs);});
+  x.fillStyle='#d9c970';x.fillRect(o+1.2*cs,o+.9*cs,.6*cs,1.9*cs);
+  x.strokeStyle='#3a3340';x.lineWidth=1.5;
+  for(let i=0;i<=6;i++){x.beginPath();x.moveTo(o+i*cs,o);x.lineTo(o+i*cs,o+6*cs);x.stroke();x.beginPath();x.moveTo(o,o+i*cs);x.lineTo(o+6*cs,o+i*cs);x.stroke();}
+  x.strokeStyle='#000';x.lineWidth=6;rooms.forEach(r=>x.strokeRect(o+r[1]*cs,o+r[2]*cs,r[3]*cs,r[4]*cs));
+  x.lineWidth=9;x.strokeRect(o,o,6*cs,6*cs);
+  x.font='800 17px system-ui,sans-serif';x.textBaseline='bottom';x.lineJoin='round';
+  rooms.forEach(r=>{const tx=o+r[1]*cs+8,ty=o+(r[2]+r[4])*cs-8;x.lineWidth=5;x.strokeStyle='#000';x.strokeText(r[0].toUpperCase(),tx,ty);x.fillStyle='#fff';x.fillText(r[0].toUpperCase(),tx,ty);});
+  return cv.toDataURL('image/jpeg',.9);
+}
+async function loadSample(){
+  const d=sampleMap();
+  S=Object.assign(fresh(),{title:'Sample case',map:d,clue:null,quad:[[20,20],[620,20],[620,620],[20,620]],rows:6,cols:6,step:'play',nid:7});
+  const L=[['Carol','She was the **only person** on a **carpet**.',0],['Dana','She was in the **Bedroom**.',0],['Evangeline','She was either **beside a shrub** or a **plant**.',0],['Viraj','**The Victim.** He was **alone** with the murderer.',1],['Ada','She was in the **Dining Room**.',0],['Ben','He was in the **Front Yard**.',0]];
+  S.suspects=L.map((l,i)=>({id:'s'+(i+1),name:l[0],letter:l[0][0],clue:l[1],color:COLORS[i],victim:!!l[2],done:false}));
+  S.rules=[{id:'r1',text:'Sample rule: **no suspect** stands on a **shrub** in the Front Yard.',done:false}];S.nid=8;
+  hist=[];result=null;mapImg=await loadImg(d);clueImg=null;boardDirty=true;save();render();window.scrollTo(0,0);
+  toast('Sample board loaded. These clues are only for trying the controls.');
+}
+
+/* ---------- navigation ---------- */
+const canGo=s=>s==='upload'||(s==='grid'&&!!S.map)||(s==='clues'&&!!S.quad)||(s==='play'&&!!S.quad&&S.suspects.length>0);
+function go(s){if(!canGo(s))return;if(s==='grid'&&!S.quad)runDetect();S.step=s;save();render();window.scrollTo(0,0);}
+function render(){
+  document.body.dataset.step=S.step;
+  STEPS.forEach(s=>{$('#s-'+s).hidden=s!==S.step;});
+  $$('.pill-step').forEach(b=>{const s=b.dataset.go;b.classList.toggle('on',s===S.step);b.disabled=!canGo(s);b.setAttribute('aria-current',s===S.step?'step':'false');});
+  $('#dock').hidden=S.step!=='play';$('#timer').hidden=S.step!=='play';
+  $('#back').style.visibility=S.step==='upload'?'hidden':'visible';
+  if($('#title')!==document.activeElement)$('#title').value=S.title||'';
+  ({upload:rUpload,grid:rGrid,clues:rClues,play:rPlay})[S.step]();
+}
+
+/* ---------- step 1: photos ---------- */
+const camIcon='<svg viewBox="0 0 24 24"><path d="M4 8h3l1.6-2.2h6.8L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.4"/></svg>';
+function dropHtml(kind,label,sub,src){
+  return `<label class="drop${src?' has':''}"><input type="file" accept="image/*" data-file="${kind}" hidden>${src?`<img src="${src}" alt="${label}">`:camIcon}<b>${label}</b><small>${src?'Tap to replace':sub}</small></label>`;
+}
+function rUpload(){
+  $('#s-upload').innerHTML=`
+    <h2>Set up the case</h2>
+    <p class="lede">Photograph the map and the clue cards from your book. Take the shot from straight above and keep the whole grid in frame.</p>
+    <div class="drops">${dropHtml('map','Map','Rooms and grid',S.map)}${dropHtml('clue','Clues','Suspect cards',S.clue)}</div>
+    <div class="row"><button class="btn primary" data-act="to-grid" ${S.map?'':'disabled'}>Find the grid</button></div>
+    <div class="how">
+      <div><span><b>Line up the grid.</b> The helper finds the board and you nudge four corner dots.</span></div>
+      <div><span><b>Read the clues.</b> Claude can transcribe the clue photo, or you type them in.</span></div>
+      <div><span><b>Solve it.</b> Pencil in maybes, pen in suspects, and rows and columns cross themselves out.</span></div>
+    </div>
+    <div class="row"><button class="btn ghost" data-act="sample">Try a sample case first</button></div>`;
+}
+
+/* ---------- step 2: grid ---------- */
+function rGrid(){
+  if(!mapImg){$('#s-grid').innerHTML='<p class="lede">Add a map photo first.</p><div class="row"><button class="btn" data-act="back">Back to photos</button></div>';return;}
+  $('#s-grid').innerHTML=`
+    <h2>Line up the grid</h2>
+    <p class="lede" id="gnote"></p>
+    <div class="gridwrap"><canvas id="gc" aria-label="Map with grid overlay. Drag the four corner dots."></canvas><canvas id="loupe" class="loupe" width="220" height="220" hidden></canvas></div>
+    <div class="steppers">
+      <div class="stepper"><b>Columns</b><div class="ctl"><button data-act="cols-" aria-label="Fewer columns">-</button><output id="vcols">${S.cols}</output><button data-act="cols+" aria-label="More columns">+</button></div></div>
+      <div class="stepper"><b>Rows</b><div class="ctl"><button data-act="rows-" aria-label="Fewer rows">-</button><output id="vrows">${S.rows}</output><button data-act="rows+" aria-label="More rows">+</button></div></div>
+    </div>
+    <div class="row"><button class="btn" data-act="redetect">Detect again</button><button class="btn primary" data-act="grid-ok">Looks right</button></div>`;
+  $('#gnote').textContent=S.autoOk===false?'The grid was not clear in this photo. Drag the four dots onto the outer corners of the grid.':'Drag the four dots onto the outer corners of the grid, then check that the blue lines follow the cell edges.';
+  setupGrid();
+}
+function setupGrid(){
+  const cv=$('#gc');if(!cv||!mapImg)return;
+  const w=cv.parentElement.clientWidth||340,k=w/mapImg.naturalWidth,h=Math.round(mapImg.naturalHeight*k),dpr=Math.min(2,window.devicePixelRatio||1);
+  gv={k,w,h,dpr};cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);cv.style.width=w+'px';cv.style.height=h+'px';
+  drawGrid();
+  let drag=null;
+  const pos=e=>{const r=cv.getBoundingClientRect();return[(e.clientX-r.left)/gv.k,(e.clientY-r.top)/gv.k];};
+  cv.addEventListener('pointerdown',e=>{
+    const p=pos(e);let bi=-1,bd=1e9;
+    S.quad.forEach((q,i)=>{const d=Math.hypot(q[0]-p[0],q[1]-p[1])*gv.k;if(d<bd){bd=d;bi=i;}});
+    if(bd>46)return;
+    drag={i:bi,dx:S.quad[bi][0]-p[0],dy:S.quad[bi][1]-p[1]};cv.setPointerCapture(e.pointerId);e.preventDefault();showLoupe();
+  });
+  cv.addEventListener('pointermove',e=>{
+    if(!drag)return;const p=pos(e);
+    S.quad[drag.i]=[clamp(p[0]+drag.dx,0,mapImg.naturalWidth),clamp(p[1]+drag.dy,0,mapImg.naturalHeight)];
+    boardDirty=true;drawGrid();showLoupe();
+  });
+  const end=()=>{if(!drag)return;drag=null;$('#loupe').hidden=true;save();};
+  cv.addEventListener('pointerup',end);cv.addEventListener('pointercancel',end);
+  function showLoupe(){
+    const lp=$('#loupe');if(!lp||!drag)return;const q=S.quad[drag.i],c=lp.getContext('2d'),R=30;
+    lp.hidden=false;lp.style[q[0]*gv.k<gv.w/2?'right':'left']='8px';lp.style[q[0]*gv.k<gv.w/2?'left':'right']='auto';
+    c.fillStyle='#000';c.fillRect(0,0,220,220);c.drawImage(mapImg,q[0]-R,q[1]-R,2*R,2*R,0,0,220,220);
+    c.strokeStyle='#fff';c.lineWidth=4;c.beginPath();c.moveTo(110,70);c.lineTo(110,150);c.moveTo(70,110);c.lineTo(150,110);c.stroke();
+    c.strokeStyle='#2f8fff';c.lineWidth=2;c.stroke();
+  }
+}
+function drawGrid(){
+  const cv=$('#gc');if(!cv||!gv||!mapImg||!S.quad)return;
+  const x=cv.getContext('2d');x.setTransform(gv.dpr,0,0,gv.dpr,0,0);x.drawImage(mapImg,0,0,gv.w,gv.h);
+  const q=S.quad.map(p=>[p[0]*gv.k,p[1]*gv.k]),P=(u,v)=>bil(q,u,v);
+  x.lineJoin='round';x.lineCap='round';
+  const line=(a,b)=>{x.beginPath();x.moveTo(a[0],a[1]);x.lineTo(b[0],b[1]);x.stroke();};
+  [0,1].forEach(pass=>{
+    x.strokeStyle=pass?'#2f8fff':'rgba(255,255,255,.9)';x.lineWidth=pass?2:4.5;
+    for(let i=0;i<=S.cols;i++)line(P(i/S.cols,0),P(i/S.cols,1));
+    for(let j=0;j<=S.rows;j++)line(P(0,j/S.rows),P(1,j/S.rows));
+  });
+  q.forEach(p=>{x.beginPath();x.arc(p[0],p[1],12,0,Math.PI*2);x.fillStyle='#fff';x.fill();x.lineWidth=3.5;x.strokeStyle='#2f8fff';x.stroke();x.beginPath();x.arc(p[0],p[1],2.6,0,Math.PI*2);x.fillStyle='#2f8fff';x.fill();});
+}
+
+/* ---------- step 3: clues ---------- */
+function newSuspect(i,over){return Object.assign({id:'s'+(S.nid++),name:'',letter:'',clue:'',color:COLORS[i%COLORS.length],victim:false,done:false,avatar:'',box:null},over||{});}
+function cropSquare(img,cx,cy,size,out=128){
+  const w=img.naturalWidth,h=img.naturalHeight,sz=Math.min(size,w,h),half=sz/2;
+  cx=clamp(cx,half,w-half);cy=clamp(cy,half,h-half);
+  const c=document.createElement('canvas');c.width=c.height=out;
+  c.getContext('2d').drawImage(img,cx-half,cy-half,sz,sz,0,0,out,out);
+  return c.toDataURL('image/jpeg',.85);
+}
+function sortSuspects(){
+  const k=s=>((s.letter||s.name||'').trim().charAt(0).toUpperCase())||'￿';
+  S.suspects=S.suspects.map((s,i)=>[s,i]).sort((a,b)=>{const x=k(a[0]),y=k(b[0]);return x<y?-1:x>y?1:a[1]-b[1];}).map(p=>p[0]);
+}
+function rClues(){
+  if(!S.suspects.length){for(let i=0;i<S.cols;i++)S.suspects.push(newSuspect(i));save();}
+  sortSuspects();
+  const reader=sampleFn&&canImages&&S.clue;
+  $('#s-clues').innerHTML=`
+    <h2>Enter the clues</h2>
+    <div class="cluebox">
+      ${S.clue?`<button class="thumb" data-act="view-clue" aria-label="Enlarge clue photo"><img src="${S.clue}" alt="Clue photo"></button>`:`<label class="drop" style="min-height:120px;padding:6px"><input type="file" accept="image/*" data-file="clue" hidden>${camIcon}<small>Add clue photo</small></label>`}
+      <div class="col">
+        ${reader?`<button class="btn accent" id="readbtn" data-act="read-clues">Read clues with Claude</button>`:''}
+        ${S.clue?`<label class="btn" style="min-height:44px;font-size:14px;cursor:pointer"><input type="file" accept="image/*" data-file="clue" hidden>Replace photo</label>`:''}
+        <p class="note" id="clue-status" aria-live="polite">${reader?'Claude transcribes the photo into the cards below. Check each one.':(S.clue?'Type each suspect below. Tap the photo to enlarge it while you type.':'Add a clue photo, or type the clues in by hand.')}</p>
+      </div>
+    </div>
+    <div id="edlist" style="display:grid;gap:12px">${S.suspects.map(edHtml).join('')}</div>
+    <div class="row"><button class="btn" data-act="add-sus">Add a suspect</button></div>
+    <h2 style="font-size:20px;margin-top:6px">General rules</h2>
+    <p class="note">Clues that belong to the whole puzzle and not to one suspect. They stay visible while you solve.</p>
+    <div style="display:grid;gap:10px">${S.rules.map(r=>`<div class="ed rl" style="--sc:var(--soft)"><textarea data-f="rule" data-rid="${r.id}" rows="2" placeholder="Rule text" aria-label="Rule">${esc(r.text)}</textarea><div class="r3"><span class="note">Applies to everyone</span><button class="lnk" data-act="del-rule" data-rid="${r.id}">Remove</button></div></div>`).join('')}</div>
+    <div class="row"><button class="btn" data-act="add-rule">Add a rule</button></div>
+    <p class="note">Put words that are bold in the book between double asterisks, like **only person**. They show in bold on the cards.</p>
+    <div class="row"><button class="btn primary" data-act="to-play">Start solving</button></div>`;
+}
+function edHtml(s){
+  return `<div class="ed" style="--sc:${s.color}" data-id="${s.id}">
+    <div class="r1"><button class="pic${s.avatar?'':' empty'}" data-act="pic" data-sid="${s.id}" aria-label="Set picture for ${esc(s.name||'this suspect')}">${avatarOf(s)}</button><input class="lt" type="text" maxlength="1" value="${esc(s.letter)}" data-f="letter" data-sid="${s.id}" aria-label="Letter" autocomplete="off"><input type="text" value="${esc(s.name)}" data-f="name" data-sid="${s.id}" placeholder="Name" aria-label="Name" autocomplete="off"></div>
+    <textarea data-f="clue" data-sid="${s.id}" rows="2" placeholder="Clue text" aria-label="Clue">${esc(s.clue)}</textarea>
+    <div class="r3"><label><input type="checkbox" data-f="victim" data-sid="${s.id}" ${s.victim?'checked':''}>This is the victim</label><button class="lnk" data-act="del-sus" data-sid="${s.id}">Remove</button></div>
+  </div>`;
+}
+const errCopy={not_granted:'Claude was not allowed to read the photo. Type the clues in by hand.',sampling_disabled:'Claude is not available for this account. Type the clues in by hand.',rate_limited:'Too many requests just now. Wait a minute, then try again.',session_expired:'Sign in again, then try again.',image_rejected:'That photo could not be read. Try a sharper, closer shot.',refused:'Claude could not read that photo. Try another shot or type the clues in.',invalid_json:'The answer came back garbled. Tap the button to try again.',empty_completion:'Nothing came back. Try again.'};
+async function readClues(){
+  const st=$('#clue-status'),btn=$('#readbtn');if(!S.clue||!sampleFn)return;
+  btn.disabled=true;st.className='note';st.textContent='Reading the clue photo. This takes up to a minute.';
+  const prompt='The attached photo shows the suspect clue cards of a Murdoku puzzle (a murder-mystery logic grid). Transcribe every card. Reply with only JSON in this shape: {"title": "puzzle title if visible, else empty string", "suspects": [{"name": "first name", "letter": "the single capital letter shown beside the name", "victim": true only for the victim card, "clue": "the clue text exactly as printed, with every word printed in bold wrapped in double asterisks", "face": [left, top, right, bottom of that card\'s small portrait picture as fractions from 0 to 1 of the whole photo width and height]}], "rules": ["each general rule or clue in the photo that does not belong to one suspect card, transcribed exactly, bold words in double asterisks"]}. Keep the order of the cards. If a card is partly hidden, include it with your best reading. Use an empty rules array when there are none.';
+  try{
+    const data=await sampleFn.json(prompt,{images:dataToBlob(S.clue),modelTier:'default'});
+    const list=Array.isArray(data)?data:(data&&data.suspects);
+    if(!Array.isArray(list)||!list.length)throw{code:'invalid_json'};
+    S.suspects=list.slice(0,12).map((s,i)=>newSuspect(i,{name:String(s.name||'').trim(),letter:String(s.letter||s.name||'').trim().charAt(0).toUpperCase(),clue:String(s.clue||'').trim(),victim:!!s.victim}));
+    S.suspects.forEach((s,i)=>{
+      const f=list[i]&&list[i].face;
+      if(!clueImg||!Array.isArray(f)||f.length<4||f.some(v=>typeof v!=='number'))return;
+      const iw=clueImg.naturalWidth,ih=clueImg.naturalHeight,w=(f[2]-f[0])*iw,h=(f[3]-f[1])*ih;
+      if(!(w>8&&h>8&&f[2]<=1.01&&f[3]<=1.01))return;
+      const cx=(f[0]+f[2])/2*iw,cy=(f[1]+f[3])/2*ih,size=Math.max(w,h)*1.1;
+      try{s.avatar=cropSquare(clueImg,cx,cy,size);s.box=[cx/iw,cy/ih,size/iw];}catch(_){}
+    });
+    S.rules=(data&&Array.isArray(data.rules)?data.rules:[]).map(t=>String(t||'').trim()).filter(Boolean).map(t=>({id:'r'+(S.nid++),text:t,done:false}));
+    if(data.title&&!S.title)S.title=String(data.title).slice(0,48);
+    save();render();
+    const n=$('#clue-status');if(n){n.className='note ok';n.textContent='Read '+S.suspects.length+' cards. Compare them with the photo and fix any slips.';}
+    if(S.suspects.length!==S.cols&&S.suspects.length!==S.rows)toast('The grid is '+S.cols+' by '+S.rows+' but there are '+S.suspects.length+' suspects.');
+  }catch(e){
+    const n=$('#clue-status'),b=$('#readbtn');if(b)b.disabled=false;
+    if(n){n.className='note err';n.textContent=errCopy[e&&e.code]||'Something went wrong while reading the photo. Try again, or type the clues in.';}
+  }
+}
+
+/* ---------- step 4: play ---------- */
+const avatar=c=>`<svg class="av" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="18" r="9" fill="#efc9a4" stroke="#17151f" stroke-width="2"/><path d="M5 46c1-11 9-16 19-16s18 5 19 16z" fill="${c}" stroke="#17151f" stroke-width="2"/></svg>`;
+const avatarOf=s=>s.avatar?`<img class="av" src="${s.avatar}" alt="" style="--sc:${s.color}">`:avatar(s.color);
+const key=(r,c)=>r+','+c;
+function snapshot(){hist.push(JSON.stringify(S.play));if(hist.length>150)hist.shift();result=null;}
+function placedMap(){const m={};for(const sid in S.play.perm){const k=S.play.perm[sid];m[k]=sid;}return m;}
+function sus(id){return S.suspects.find(s=>s.id===id);}
+function rPlay(){
+  sortSuspects();
+  if(boardDirty||!boardCanvas)buildBoard();
+  const P=S.play,pm=placedMap(),rowsUsed={},colsUsed={},bad=new Set();
+  for(const sid in P.perm){const[r,c]=P.perm[sid].split(',').map(Number);(rowsUsed[r]=rowsUsed[r]||[]).push(sid);(colsUsed[c]=colsUsed[c]||[]).push(sid);}
+  for(const r in rowsUsed)if(rowsUsed[r].length>1)rowsUsed[r].forEach(s=>bad.add(s));
+  for(const c in colsUsed)if(colsUsed[c].length>1)colsUsed[c].forEach(s=>bad.add(s));
+  let cells='';
+  for(let r=0;r<S.rows;r++)for(let c=0;c<S.cols;c++){
+    const k=key(r,c),here=pm[k],dead=!here&&(rowsUsed[r]||colsUsed[c]),man=P.cross.includes(k),tmp=(P.temp[k]||[]).filter(sus);
+    let inner='';
+    if(man)inner+='<svg class="x" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5"/></svg>';
+    else if(dead)inner+='<svg class="x" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5"/></svg>';
+    if(here){const s=sus(here);inner+=`<span class="mk${bad.has(here)?' bad':''}" style="--sc:${s.color}">${esc(s.letter||'?')}</span>`;}
+    else if(tmp.length){const shown=tmp.slice(0,4);inner+=`<span class="tmps${tmp.length===1?' one':''}">${shown.map(id=>{const s=sus(id);return`<span class="tm" style="--sc:${s.color}">${esc(s.letter||'?')}</span>`;}).join('')}${tmp.length>4?`<span class="tm more">+${tmp.length-3}</span>`:''}</span>`;}
+    cells+=`<button class="cell${dead?' dead':''}${man?' man':''}" data-r="${r}" data-c="${c}" aria-label="Row ${r+1}, column ${c+1}${here?', '+esc(sus(here).name||sus(here).letter):''}">${inner}</button>`;
+  }
+  const n=S.suspects.length,placed=Object.keys(P.perm).length,sel=S.sel&&sus(S.sel);
+  const cards=S.suspects.map(s=>`<div class="card${S.sel===s.id?' sel':''}${s.done?' dn':''}" style="--sc:${s.color}" role="button" tabindex="0" data-act="sel" data-sid="${s.id}" aria-pressed="${S.sel===s.id}">
+      ${avatarOf(s)}<div style="min-width:0"><div class="nm"><i>${esc(s.letter||'?')}</i><span>${esc(s.name||'Suspect')}</span></div>${s.victim?'<span class="tag">Victim</span>':''}<div class="cl">${fmtClue(s.clue)||'<span style="color:var(--ink2)">No clue entered</span>'}</div></div>
+      <button class="dnb" data-act="done" data-sid="${s.id}" aria-label="Mark clue as used"><svg viewBox="0 0 24 24"><path d="M5 12.5l5 5 9-11"/></svg></button></div>`).join('');
+  const hint=S.tool==='cross'?'Cross tool: tap squares nobody can be in.':S.tool==='erase'?'Eraser: tap a square to clear it.':sel?(S.mode==='pen'?`Pen: tap a square to place ${esc(sel.name||sel.letter)}.`:`Pencil: tap squares where ${esc(sel.name||sel.letter)} might be.`):'Tap a suspect card, then tap a square.';
+  $('#s-play').innerHTML=`
+    <div class="board" style="aspect-ratio:${S.cols}/${S.rows}"><div class="cells" style="grid-template-columns:repeat(${S.cols},1fr);grid-template-rows:repeat(${S.rows},1fr)">${cells}</div></div>
+    <div class="status" style="margin-top:0"><span class="chip${placed===n&&n?' good':''}">${placed} of ${n} placed</span><span class="chip">${S.mode==='pen'?'Pen':'Pencil'}</span><span class="hintline" style="margin:0">${hint}</span></div>
+    ${result?`<p class="result ${result.ok?'ok':'no'}" role="status">${esc(result.msg)}</p>`:''}
+    ${S.rules.length?`<h3 class="sec">General rules</h3><div class="rules">${S.rules.map(r=>`<div class="rule${r.done?' dn':''}"><span class="tag">Rule</span><div class="cl">${fmtClue(r.text)||'<span style="color:var(--ink2)">Empty rule</span>'}</div><button class="dnb" data-act="rule-done" data-rid="${r.id}" aria-label="Mark rule as used"><svg viewBox="0 0 24 24"><path d="M5 12.5l5 5 9-11"/></svg></button></div>`).join('')}</div>`:''}
+    <h3 class="sec">Suspects</h3><div class="cards" style="margin-top:8px">${cards}</div>`;
+  $('#s-play .board').prepend(boardCanvas);
+  $('#d-cross').setAttribute('aria-pressed',S.tool==='cross');$('#d-erase').setAttribute('aria-pressed',S.tool==='erase');
+  $('#d-undo').disabled=!hist.length;
+  const m=$('#d-mode');m.className='dk pen';m.setAttribute('aria-pressed',S.mode==='pen');
+  m.innerHTML=S.mode==='pen'?'<svg viewBox="0 0 24 24"><path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19z"/><path d="M14.5 6.5l3 3"/></svg>Pen':'<svg viewBox="0 0 24 24"><path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19z" stroke-dasharray="2.6 2.6"/></svg>Pencil';
+  $('#d-count').textContent=placed+'/'+n;
+}
+let crop=null;
+function openPic(sid){
+  const s=sus(sid);if(!s)return;
+  let b=`<h2>Picture for ${esc(s.name||'this suspect')}</h2>`;
+  if(clueImg)b+=`<p class="note">Drag the blue square onto the suspect's portrait. Drag outside it to scroll the photo, or tap to jump the square. Then set the size.</p><div class="cropbox" id="cropbox"><canvas id="pc"></canvas></div><label class="note" style="display:flex;gap:10px;align-items:center">Size<input id="psize" type="range" min="4" max="60" value="25" style="flex:1" aria-label="Crop size"></label><button class="btn primary" data-act="pic-use" data-sid="${sid}">Use this crop</button>`;
+  b+=`<label class="btn" style="cursor:pointer"><input type="file" accept="image/*" data-file="avatar" data-sid="${sid}" hidden>Upload a different picture</label>`;
+  if(s.avatar)b+=`<button class="btn" data-act="pic-clear" data-sid="${sid}">Remove picture</button>`;
+  b+=`<button class="btn" data-act="close-sheet">Cancel</button>`;
+  sheet(b);
+  if(clueImg)setupCrop(s);
+}
+function setupCrop(s){
+  const cv=$('#pc'),box=$('#cropbox'),iw=clueImg.naturalWidth,ih=clueImg.naturalHeight;
+  const w=box.clientWidth-2||320,k=w/iw,dpr=Math.min(2,window.devicePixelRatio||1);
+  cv.width=Math.round(w*dpr);cv.height=Math.round(ih*k*dpr);cv.style.width=w+'px';cv.style.height=Math.round(ih*k)+'px';
+  crop=s.box?{cx:s.box[0]*iw,cy:s.box[1]*ih,size:s.box[2]*iw}:{cx:iw*.2,cy:ih*.2,size:iw*.25};
+  const sl=$('#psize');sl.value=clamp(Math.round(crop.size/iw*100),4,60);
+  const draw=()=>{
+    const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.drawImage(clueImg,0,0,w,ih*k);
+    const sz=crop.size*k,l=crop.cx*k-sz/2,t=crop.cy*k-sz/2,H=ih*k;
+    x.fillStyle='rgba(0,0,0,.5)';x.fillRect(0,0,w,Math.max(0,t));x.fillRect(0,t+sz,w,Math.max(0,H-t-sz));x.fillRect(0,t,Math.max(0,l),sz);x.fillRect(l+sz,t,Math.max(0,w-l-sz),sz);
+    x.lineWidth=3;x.strokeStyle='#2f8fff';x.strokeRect(l,t,sz,sz);
+  };
+  /* drag inside the square to move it; drag anywhere else to scroll the photo; tap to jump the square */
+  let g=null;
+  const at=e=>{const r=cv.getBoundingClientRect();return[(e.clientX-r.left)/k,(e.clientY-r.top)/k];};
+  cv.addEventListener('pointerdown',e=>{
+    const p=at(e),slop=14/k,half=crop.size/2+slop;
+    g=(Math.abs(p[0]-crop.cx)<=half&&Math.abs(p[1]-crop.cy)<=half)?{m:'move',dx:crop.cx-p[0],dy:crop.cy-p[1]}:{m:'pan',y:e.clientY,st:box.scrollTop,moved:false};
+    cv.setPointerCapture(e.pointerId);e.preventDefault();
+  });
+  cv.addEventListener('pointermove',e=>{
+    if(!g)return;
+    if(g.m==='move'){const p=at(e);crop.cx=clamp(p[0]+g.dx,0,iw);crop.cy=clamp(p[1]+g.dy,0,ih);draw();}
+    else{const d=e.clientY-g.y;if(Math.abs(d)>6)g.moved=true;if(g.moved)box.scrollTop=g.st-d;}
+  });
+  const end=e=>{
+    if(!g)return;
+    if(g.m==='pan'&&!g.moved&&e.type==='pointerup'){const p=at(e);crop.cx=clamp(p[0],0,iw);crop.cy=clamp(p[1],0,ih);draw();}
+    g=null;
+  };
+  cv.addEventListener('pointerup',end);cv.addEventListener('pointercancel',end);
+  sl.addEventListener('input',()=>{crop.size=iw*sl.value/100;draw();});
+  draw();box.scrollTop=Math.max(0,crop.cy*k-box.clientHeight/2);
+}
+function cellTap(r,c){
+  const P=S.play,k=key(r,c),pm=placedMap(),here=pm[k];
+  if(S.tool==='cross'){
+    if(here){toast('A suspect is placed here. Use the eraser to clear it.');return;}
+    snapshot();const i=P.cross.indexOf(k);i>=0?P.cross.splice(i,1):P.cross.push(k);
+  }else if(S.tool==='erase'){
+    if(!here&&!P.cross.includes(k)&&!(P.temp[k]||[]).length)return;
+    snapshot();if(here)delete P.perm[here];P.cross=P.cross.filter(x=>x!==k);delete P.temp[k];
+  }else{
+    const sid=S.sel;if(!sid||!sus(sid)){toast('Pick a suspect card first.');return;}
+    if(here&&here!==sid){toast('Another suspect is already placed here.');return;}
+    if(here===sid){snapshot();delete P.perm[sid];}
+    else if(S.mode==='pen'){
+      snapshot();P.perm[sid]=k;P.cross=P.cross.filter(x=>x!==k);
+      for(const t in P.temp){P.temp[t]=P.temp[t].filter(x=>x!==sid);if(!P.temp[t].length)delete P.temp[t];}
+    }else{
+      if(P.perm[sid]){toast('Already placed. Tap their marker to lift it, or switch to Pen to move them.');return;}
+      snapshot();const t=P.temp[k]=P.temp[k]||[];const i=t.indexOf(sid);
+      if(i>=0){t.splice(i,1);if(!t.length)delete P.temp[k];}else t.push(sid);
+    }
+  }
+  save();rPlay();
+}
+function check(){
+  const n=S.suspects.length,P=S.play,ids=Object.keys(P.perm);
+  if(ids.length<n){result={ok:false,msg:`${ids.length} of ${n} suspects placed. Place everyone in pen first.`};}
+  else{
+    const rs=new Set(),cs=new Set();ids.forEach(i=>{const[r,c]=P.perm[i].split(',');rs.add(r);cs.add(c);});
+    result=(rs.size===n&&cs.size===n)?{ok:true,msg:'Every row and column holds exactly one suspect. Now read each clue against the board once more.'}:{ok:false,msg:'Two suspects share a row or column. The ringed markers conflict.'};
+  }
+  rPlay();
+}
+
+/* ---------- sheets / viewer ---------- */
+let armed={};
+function sheet(html){$('#sheet-body').innerHTML=html;$('#sheet').hidden=false;}
+function closeSheet(){$('#sheet').hidden=true;}
+function openViewer(src){if(!src)return;$('#vimg').src=src;$('#viewer').classList.remove('z');$('#viewer').hidden=false;}
+function arm(name,btn,again,run){
+  if(armed[name]){clearTimeout(armed[name]);armed[name]=0;run();return;}
+  const old=btn.textContent;btn.textContent=again;
+  armed[name]=setTimeout(()=>{armed[name]=0;btn.textContent=old;},3000);
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click',e=>{
+  const cell=e.target.closest('.cell');
+  if(cell){cellTap(+cell.dataset.r,+cell.dataset.c);return;}
+  const go_=e.target.closest('[data-go]');if(go_){go(go_.dataset.go);return;}
+  if(e.target===$('#sheet')){closeSheet();return;}
+  const a=e.target.closest('[data-act]');if(!a)return;
+  const act=a.dataset.act,sid=a.dataset.sid;
+  switch(act){
+    case 'back':{const i=STEPS.indexOf(S.step);if(i>0)go(STEPS[i-1]);break;}
+    case 'to-grid':if(S.map){if(!S.quad)runDetect();go('grid');}break;
+    case 'sample':loadSample();break;
+    case 'redetect':runDetect();rGrid();break;
+    case 'grid-ok':go('clues');break;
+    case 'cols-':case 'cols+':case 'rows-':case 'rows+':{
+      const f=act.slice(0,4),d=act.endsWith('+')?1:-1;S[f]=clamp(S[f]+d,3,12);boardDirty=true;
+      $('#v'+f).textContent=S[f];drawGrid();save();break;}
+    case 'view-clue':openViewer(S.clue);break;
+    case 'zoom':$('#viewer').classList.toggle('z');break;
+    case 'close-viewer':$('#viewer').hidden=true;break;
+    case 'read-clues':readClues();break;
+    case 'add-sus':S.suspects.push(newSuspect(S.suspects.length));save();rClues();setTimeout(()=>{const l=$$('#edlist .ed');if(l.length)l[l.length-1].scrollIntoView({block:'center'});},30);break;
+    case 'del-sus':S.suspects=S.suspects.filter(s=>s.id!==sid);delete S.play.perm[sid];for(const t in S.play.temp){S.play.temp[t]=S.play.temp[t].filter(x=>x!==sid);if(!S.play.temp[t].length)delete S.play.temp[t];}if(S.sel===sid)S.sel=null;save();rClues();break;
+    case 'to-play':if(!S.suspects.length){toast('Add at least one suspect.');break;}S.suspects.forEach(s=>{if(!s.letter&&s.name)s.letter=s.name[0].toUpperCase();});go('play');break;
+    case 'sel':S.sel=S.sel===sid?null:sid;S.tool='place';save();rPlay();break;
+    case 'done':{const s=sus(sid);if(s){s.done=!s.done;save();rPlay();}break;}
+    case 'tool-cross':S.tool=S.tool==='cross'?'place':'cross';rPlay();break;
+    case 'tool-erase':S.tool=S.tool==='erase'?'place':'erase';rPlay();break;
+    case 'undo':if(hist.length){S.play=JSON.parse(hist.pop());result=null;save();rPlay();}break;
+    case 'mode':S.mode=S.mode==='pen'?'pencil':'pen';save();rPlay();break;
+    case 'check':check();break;
+    case 'help':sheet(`<h2>How to solve</h2><div class="how"><div><span><b>Pick a suspect.</b> Tap their card. Tap it again to put it down.</span></div><div><span><b>Pencil.</b> Tap squares to mark where they might be. Several suspects can share a square.</span></div><div><span><b>Pen.</b> Tap a square to place them for good. Their row and column fade out and get crossed for everyone.</span></div><div><span><b>Cross and erase.</b> The X tool marks squares nobody can use. The eraser clears a square. Undo steps back.</span></div></div><button class="btn primary" data-act="close-sheet">Got it</button>`);break;
+    case 'gear':sheet(`<h2>Case menu</h2><button class="btn" data-act="edit-grid">Adjust the grid</button><button class="btn" data-act="edit-clues">Edit the clues</button><button class="btn" data-act="reset-marks">Clear all marks</button><button class="btn" data-act="new-case" style="color:var(--bad)">Start a new case</button><button class="btn primary" data-act="close-sheet">Close</button>`);break;
+    case 'pic':openPic(sid);break;
+    case 'pic-use':{const s=sus(sid);if(s&&crop&&clueImg){const iw=clueImg.naturalWidth,ih=clueImg.naturalHeight;s.avatar=cropSquare(clueImg,crop.cx,crop.cy,crop.size);s.box=[crop.cx/iw,crop.cy/ih,crop.size/iw];save();closeSheet();rClues();}break;}
+    case 'pic-clear':{const s=sus(sid);if(s){s.avatar='';s.box=null;save();closeSheet();rClues();}break;}
+    case 'add-rule':S.rules.push({id:'r'+(S.nid++),text:'',done:false});save();rClues();setTimeout(()=>{const l=$$('textarea[data-f=rule]');if(l.length){l[l.length-1].scrollIntoView({block:'center'});l[l.length-1].focus();}},30);break;
+    case 'del-rule':S.rules=S.rules.filter(r=>r.id!==a.dataset.rid);save();rClues();break;
+    case 'rule-done':{const r=S.rules.find(x=>x.id===a.dataset.rid);if(r){r.done=!r.done;save();rPlay();}break;}
+    case 'close-sheet':closeSheet();break;
+    case 'edit-grid':closeSheet();go('grid');break;
+    case 'edit-clues':closeSheet();go('clues');break;
+    case 'reset-marks':arm('marks',a,'Tap again to clear marks',()=>{S.play={perm:{},temp:{},cross:[]};hist=[];result=null;S.elapsed=0;save();closeSheet();render();toast('Board cleared.');});break;
+    case 'new-case':arm('new',a,'Tap again to delete this case',()=>{S=fresh();hist=[];result=null;mapImg=clueImg=boardCanvas=null;boardDirty=true;try{localStorage.removeItem(KEY);}catch(_){}closeSheet();render();window.scrollTo(0,0);});break;
+  }
+});
+document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches&&e.target.matches('.card[role=button]')){e.preventDefault();e.target.click();}if(e.key==='Escape'){closeSheet();$('#viewer').hidden=true;}});
+document.addEventListener('change',async e=>{
+  const t=e.target;
+  if(t.matches('input[type=file][data-file]')){
+    const f=t.files&&t.files[0];if(!f)return;const kind=t.dataset.file;
+    try{
+      const d=await fileToData(f);
+      if(kind==='avatar'){
+        const s=sus(t.dataset.sid),im=await loadImg(d);
+        if(s&&im){s.avatar=cropSquare(im,im.naturalWidth/2,im.naturalHeight/2,Math.min(im.naturalWidth,im.naturalHeight));s.box=null;save();closeSheet();rClues();}
+        return;
+      }
+      if(kind==='map'){S.map=d;mapImg=await loadImg(d);S.quad=null;S.autoOk=undefined;boardDirty=true;}
+      else{S.clue=d;clueImg=await loadImg(d);}
+      save();render();
+    }catch(err){toast('That photo could not be opened. Try a JPEG or PNG.');}
+    t.value='';return;
+  }
+  if(t.dataset&&t.dataset.f==='victim'){const s=sus(t.dataset.sid);if(s){s.victim=t.checked;save();}}
+});
+document.addEventListener('input',e=>{
+  const t=e.target;
+  if(t.id==='title'){S.title=t.value;save();return;}
+  const f=t.dataset&&t.dataset.f;if(!f||f==='victim')return;
+  if(f==='rule'){const r=S.rules.find(x=>x.id===t.dataset.rid);if(r){r.text=t.value;save();}return;}
+  const s=sus(t.dataset.sid);if(!s)return;
+  if(f==='letter'){s.letter=t.value.toUpperCase().slice(0,1);}
+  else if(f==='name'){s.name=t.value;if(!s.letter&&t.value){s.letter=t.value[0].toUpperCase();const li=t.closest('.ed').querySelector('[data-f=letter]');if(li)li.value=s.letter;}}
+  else s.clue=t.value;
+  save();
+});
+
+/* ---------- timer and boot ---------- */
+setInterval(()=>{if(S.step!=='play'||document.hidden)return;S.elapsed=(S.elapsed||0)+1;const m=Math.floor(S.elapsed/60),s=S.elapsed%60;$('#timer').textContent=m+':'+String(s).padStart(2,'0');if(S.elapsed%10===0)save();},1000);
+{const m=Math.floor((S.elapsed||0)/60),s=(S.elapsed||0)%60;$('#timer').textContent=m+':'+String(s).padStart(2,'0');}
+render();
+Promise.all([loadImg(S.map),loadImg(S.clue)]).then(([m,c])=>{mapImg=m;clueImg=c;boardDirty=true;render();});
+if(window.claude&&window.claude.use){
+  window.claude.use('sample').then(async fn=>{
+    if(!fn)return;sampleFn=fn;
+    try{const l=await fn.limits();canImages=!!(l&&l.images);}catch(e){canImages=false;}
+    if(S.step==='clues')rClues();
+  }).catch(()=>{});
+}
+window.addEventListener('resize',()=>{if(S.step==='grid')setupGrid();});
+})();
+</script>

@@ -17,7 +17,11 @@ Progress, photos and the timer are saved in the browser's local storage.
 
 ## Running it
 
-Open `index.html` in a browser, or serve the folder with any static host. To use it with GitHub Pages, enable Pages for the `main` branch.
+Open `index.html` in a browser, or serve the folder with any static host such as Vercel or GitHub Pages. No build command and no output directory are needed; deploy the repository root as is.
+
+## Editing
+
+`page.html` is the source. It is also the file published as a Claude Artifact. After changing it, run `python3 build.py` to regenerate `index.html`, which wraps the source in a full HTML document (doctype, charset, viewport and a small reset) so it works on ordinary hosts.
 
 ## Reading clues with Claude
 
