@@ -25,7 +25,13 @@ Open `index.html` in a browser, or serve the folder with any static host such as
 
 ## Reading clues with Claude
 
-The "Read clues with Claude" button, and the automatic crop of suspect pictures, use the `sample` capability of Claude Artifacts. That capability exists only when the page is published as a Claude Artifact. Anywhere else the button is hidden and you type the clues in by hand; everything else works the same.
+The "Read clues with Claude" button transcribes the clue photo, crops each suspect's picture and picks up general rules.
+
+- **Inside a Claude Artifact** it uses the artifact's built-in Claude access. Nothing to set up.
+- **On Vercel or any other host** it calls `/api/read-clues`, a serverless function in `api/read-clues.js`. To turn it on, add an environment variable `ANTHROPIC_API_KEY` in the Vercel project (Settings, Environment Variables) and redeploy. Set `ANTHROPIC_MODEL` to use a different model; the default is `claude-sonnet-5-5`. Each read uses a little of your API credit.
+- **Without the key** the page shows a short message and you type the clues in by hand. Everything else works the same.
+
+The key stays on the server and is never sent to the browser. The function only accepts calls from the site's own pages and a fixed prompt, but anyone who can open your site can still trigger reads. Use Vercel's deployment protection or a spending limit on the key if the site is public. The prompt in `api/read-clues.js` mirrors the one in `page.html`; change both together.
 
 ## Limits
 
