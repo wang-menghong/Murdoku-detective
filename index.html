@@ -508,8 +508,31 @@ function sortSuspects(){
   const k=s=>((s.letter||s.name||'').trim().charAt(0).toUpperCase())||'￿';
   S.suspects=S.suspects.map((s,i)=>[s,i]).sort((a,b)=>{const x=k(a[0]),y=k(b[0]);return x<y?-1:x>y?1:a[1]-b[1];}).map(p=>p[0]);
 }
+/* One suspect per row/column of the smaller grid side, victim included. Names run A, B, C... skipping V; the victim is always V. */
+const INITIALS='ABCDEFGHIJKLMNOPQRSTUWXYZ';
+const isBlankSus=s=>!(s.name||'').trim()&&!(s.clue||'').trim()&&!s.avatar;
+const gridN=()=>clamp(Math.min(S.rows,S.cols),1,INITIALS.length);
+function fillInitials(){
+  const n=gridN();let list=S.suspects.slice();
+  while(list.length>n){const i=list.map(isBlankSus).lastIndexOf(true);if(i<0)break;list.splice(i,1);}   /* drop surplus empty slots only */
+  let vic=list.find(s=>s.victim)||list.find(s=>s.letter==='V')||null;
+  if(!vic){vic=list.filter(isBlankSus).pop()||null;if(!vic&&list.length<n){vic=newSuspect(list.length);list.push(vic);}}
+  while(list.length<n)list.push(newSuspect(list.length));
+  list.forEach(s=>{s.victim=s===vic;});
+  const seen=new Set();
+  list.forEach(s=>{
+    let l=s===vic?'V':(s.letter||'').toUpperCase();
+    if(l==='V'&&s!==vic)l='';
+    if(l&&(!INITIALS.includes(l)&&s!==vic||seen.has(l)))l='';
+    s.letter=l;if(l)seen.add(l);
+  });
+  const free=INITIALS.split('').filter(c=>!seen.has(c));
+  list.forEach(s=>{if(!s.letter)s.letter=free.shift()||'';});
+  S.suspects=list;save();
+  return list.length>n;
+}
 function rClues(){
-  if(!S.suspects.length){for(let i=0;i<S.cols;i++)S.suspects.push(newSuspect(i));save();}
+  if(!S.suspects.length||S.suspects.every(isBlankSus))fillInitials();
   sortSuspects();
   const aiOk=!!(sampleFn&&canImages)||(hostMode&&!!apiProvider);
   const reader=!!S.clue&&aiOk;
@@ -526,7 +549,8 @@ function rClues(){
       </div>
     </div>
     <div id="edlist" style="display:grid;gap:12px">${S.suspects.map(edHtml).join('')}</div>
-    <div class="row"><button class="btn" data-act="add-sus">Add a suspect</button></div>
+    <div class="row"><button class="btn" data-act="fill-initials">Fill initials for ${gridN()} suspects</button><button class="btn" data-act="add-sus">Add a suspect</button></div>
+    <p class="note">The grid is ${S.cols} by ${S.rows}, so there are ${gridN()} suspects including the victim. Suspects run A, B, C and on, skipping V, and the victim is V.</p>
     <h2 style="font-size:20px;margin-top:6px">General rules</h2>
     <p class="note">Clues that belong to the whole puzzle and not to one suspect. They stay visible while you solve.</p>
     <div style="display:grid;gap:10px">${S.rules.map(r=>`<div class="ed rl" style="--sc:var(--soft)"><textarea data-f="rule" data-rid="${r.id}" rows="2" placeholder="Rule text" aria-label="Rule">${esc(r.text)}</textarea><div class="r3"><span class="note">Applies to everyone</span><button class="lnk" data-act="del-rule" data-rid="${r.id}">Remove</button></div></div>`).join('')}</div>
@@ -581,6 +605,7 @@ async function readClues(){
     const list=Array.isArray(data)?data:(data&&data.suspects);
     if(!Array.isArray(list)||!list.length)throw{code:'invalid_json'};
     S.suspects=list.slice(0,12).map((s,i)=>newSuspect(i,{name:String(s.name||'').trim(),letter:String(s.letter||s.name||'').trim().charAt(0).toUpperCase(),clue:String(s.clue||'').trim(),victim:!!s.victim}));
+    S.suspects.forEach(s=>{if(s.victim)s.letter='V';});
     S.suspects.forEach((s,i)=>{
       const f=list[i]&&list[i].face;
       if(!clueImg||!Array.isArray(f)||f.length<4||f.some(v=>typeof v!=='number'))return;
@@ -664,6 +689,7 @@ async function readOcr(){
     const res=ocrLinesToCards(lines,clueImg.naturalWidth);
     if(!res.suspects.length&&!res.rules.length)throw{code:'ocr_empty'};
     S.suspects=res.suspects.slice(0,12).map((s,i)=>newSuspect(i,s));
+    S.suspects.forEach(s=>{if(s.victim)s.letter='V';});
     S.rules=res.rules.map(t=>({id:'r'+(S.nid++),text:t,done:false}));
     save();render();
     const n=$('#clue-status');if(n){n.className='note ok';n.textContent='Read '+S.suspects.length+' cards offline. Check the text against the photo, then add names and pictures where they are missing.';}
@@ -826,6 +852,7 @@ document.addEventListener('click',e=>{
     case 'close-viewer':$('#viewer').hidden=true;break;
     case 'read-clues':readClues();break;
     case 'read-ocr':readOcr();break;
+    case 'fill-initials':{const extra=fillInitials();rClues();toast(extra?'Some suspects already have text, so none were removed.':'Initials filled in.');break;}
     case 'add-sus':S.suspects.push(newSuspect(S.suspects.length));save();rClues();setTimeout(()=>{const l=$$('#edlist .ed');if(l.length)l[l.length-1].scrollIntoView({block:'center'});},30);break;
     case 'del-sus':S.suspects=S.suspects.filter(s=>s.id!==sid);delete S.play.perm[sid];for(const t in S.play.temp){S.play.temp[t]=S.play.temp[t].filter(x=>x!==sid);if(!S.play.temp[t].length)delete S.play.temp[t];}if(S.sel===sid)S.sel=null;save();rClues();break;
     case 'to-play':if(!S.suspects.length){toast('Add at least one suspect.');break;}S.suspects.forEach(s=>{if(!s.letter&&s.name)s.letter=s.name[0].toUpperCase();});go('play');break;

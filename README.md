@@ -6,7 +6,7 @@ A phone-first web page that helps you solve Murdoku cases from printed books. It
 
 1. **Photos.** Upload a photo of the puzzle map and a photo of the clue cards.
 2. **Grid.** The page finds the board and overlays a grid. Drag the four corner dots to correct it, and set the number of rows and columns. The board is straightened so tilted photos still give a clean grid.
-3. **Clues.** Each suspect gets a card with a letter, name, picture and clue. General rules that belong to no suspect go in their own list. Suspects are sorted by initial.
+3. **Clues.** Each suspect gets a card with a letter, name, picture and clue. General rules that belong to no suspect go in their own list. Suspects are sorted by initial. The page creates one suspect slot per row of the smaller grid side, victim included, with initials A, B, C and on (skipping V) and the victim fixed as V. The Fill initials button redoes this after you change the grid; it never removes a suspect that has text.
 4. **Solve.** Tap a suspect, then tap squares.
    - Pencil puts temporary marks. Several suspects can share a square.
    - Pen places a suspect for good and crosses out their row and column.
