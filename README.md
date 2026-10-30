@@ -39,7 +39,7 @@ The first run downloads the reader (about 5 MB) from jsDelivr. To make it work w
 | Gemini | `GEMINI_API_KEY` | `GEMINI_MODEL` | `gemini-3.8-flash` | the photo |
 | DeepSeek | `DEEPSEEK_API_KEY` | `DEEPSEEK_MODEL` | `deepseek-flash` | offline OCR text only |
 
-If several keys are set, `CLUE_PROVIDER` (`anthropic`, `gemini` or `deepseek`) chooses; otherwise the first key found in the order above is used. Claude and Gemini also crop the suspect pictures and keep bold words. DeepSeek's current model has no documented image input, so the page reads the photo offline first and sends DeepSeek only the text to tidy up. Model names change often, so set the model variable if a default stops working.
+If several keys are set, `CLUE_PROVIDER` (`anthropic`, `gemini` or `deepseek`) chooses; otherwise the first key found in the order above is used. Claude and Gemini also crop the suspect pictures and keep bold words. DeepSeek's current model has no documented image input, so the page reads the photo offline first and sends DeepSeek only the text to tidy up. Model names change often, so set the model variable if a default stops working. Gemini thinks before answering, which is slow for plain text reading, so the function asks for a low thinking level; set `GEMINI_THINKING` to `medium`, `high` or `off` to change that. Requests are cut off after 50 seconds, and the page shows the provider's own error message when a read fails.
 
 **3. Inside a Claude Artifact** the button uses the artifact's built-in Claude access with nothing to set up. Offline reading is not available there.
 

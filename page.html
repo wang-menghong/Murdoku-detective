@@ -534,7 +534,7 @@ function edHtml(s){
     <div class="r3"><label><input type="checkbox" data-f="victim" data-sid="${s.id}" ${s.victim?'checked':''}>This is the victim</label><button class="lnk" data-act="del-sus" data-sid="${s.id}">Remove</button></div>
   </div>`;
 }
-const errCopy={not_granted:'Claude was not allowed to read the photo. Type the clues in by hand.',sampling_disabled:'Claude is not available for this account. Type the clues in by hand.',rate_limited:'Too many requests just now. Wait a minute, then try again.',session_expired:'Sign in again, then try again.',image_rejected:'That photo could not be read. Try a sharper, closer shot.',refused:'Claude could not read that photo. Try another shot or type the clues in.',invalid_json:'The answer came back garbled. Tap the button to try again.',empty_completion:'Nothing came back. Try again.',ocr_empty:'No text was found in that photo. Try a sharper, closer shot of the clue cards.',host_unconfigured:'AI reading is not set up on this site yet. Use offline reading, add an API key in the host settings and redeploy, or type the clues in by hand.',host_offline:'Could not reach the clue reader. Check your connection and try again.',host_error:'The clue reader failed. Try again, or type the clues in.'};
+const errCopy={not_granted:'Claude was not allowed to read the photo. Type the clues in by hand.',sampling_disabled:'Claude is not available for this account. Type the clues in by hand.',rate_limited:'Too many requests just now. Wait a minute, then try again.',session_expired:'Sign in again, then try again.',image_rejected:'That photo could not be read. Try a sharper, closer shot.',refused:'Claude could not read that photo. Try another shot or type the clues in.',invalid_json:'The answer came back garbled. Tap the button to try again.',empty_completion:'Nothing came back. Try again.',ocr_empty:'No text was found in that photo. Try a sharper, closer shot of the clue cards.',host_unconfigured:'AI reading is not set up on this site yet. Use offline reading, add an API key in the host settings and redeploy, or type the clues in by hand.',host_offline:'Could not reach the clue reader. Check your connection and try again.',host_error:'The clue reader failed. Try again, or type the clues in.',host_timeout:'The AI took too long (over 50 seconds). Try again, use a faster model, or use offline reading.'};
 function parseLoose(t){
   try{return JSON.parse(t);}catch(e){}
   const f=/```(?:json)?\s*([\s\S]*?)```/.exec(t);if(f){try{return JSON.parse(f[1]);}catch(e){}}
@@ -548,7 +548,11 @@ async function hostedRead(payload){
   catch(e){throw{code:'host_offline'};}
   if(res.status===404||res.status===405||res.status===501)throw{code:'host_unconfigured'};
   if(res.status===429)throw{code:'rate_limited'};
-  if(!res.ok)throw{code:'host_error'};
+  if(res.status===504)throw{code:'host_timeout'};
+  if(!res.ok){
+    let d='';try{const j=await res.json();d=[j.provider,j.status,j.detail||j.error].filter(Boolean).join(' ');}catch(_){}
+    throw{code:'host_error',detail:d};
+  }
   const j=await res.json();
   return parseLoose(j.text||'');
 }
@@ -585,7 +589,7 @@ async function readClues(){
     if(S.suspects.length!==S.cols&&S.suspects.length!==S.rows)toast('The grid is '+S.cols+' by '+S.rows+' but there are '+S.suspects.length+' suspects.');
   }catch(e){
     const n=$('#clue-status'),b=$('#readbtn');if(b)b.disabled=false;
-    if(n){n.className='note err';n.textContent=errCopy[e&&e.code]||'Something went wrong while reading the photo. Try again, or type the clues in.';}
+    if(n){n.className='note err';n.textContent=(errCopy[e&&e.code]||'Something went wrong while reading the photo. Try again, or type the clues in.')+(e&&e.detail?' ('+String(e.detail).slice(0,240)+')':'');}
   }
 }
 

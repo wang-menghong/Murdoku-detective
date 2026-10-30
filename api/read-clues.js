@@ -7,6 +7,7 @@
 // If several keys are set, CLUE_PROVIDER (anthropic | gemini | deepseek) chooses;
 // otherwise the first key found in the order above is used.
 //
+// Env GEMINI_THINKING (low | medium | high | off) sets Gemini's thinking level; default low.
 // GET  returns {provider, label} (never a key) so the page knows whether to show the AI button.
 // POST {image: "data:image/jpeg;base64,..."} returns {text} with the model's JSON reply.
 //      Claude and Gemini take the image. DeepSeek takes {text: "<OCR text>"} instead (GET reports input: "text").
@@ -37,13 +38,15 @@ const PROMPT_TEXT =
 
 const MAX_IMAGE_CHARS = 4_000_000; // Vercel functions accept request bodies up to about 4.5 MB
 const MAX_TEXT_CHARS = 20_000;
+const TIMEOUT_MS = 50_000; // answer before Vercel's 60 s function limit (vercel.json) cuts the request off silently
 
 const PROVIDERS = {
   anthropic: {
     label: 'Claude',
     keyEnv: 'ANTHROPIC_API_KEY',
-    async call(key, mime, b64) {
+    async call(key, mime, b64, _t, signal) {
       const r = await fetch('https://api.anthropic.com/v1/messages', {
+        signal,
         method: 'POST',
         headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -64,19 +67,26 @@ const PROVIDERS = {
   gemini: {
     label: 'Gemini',
     keyEnv: 'GEMINI_API_KEY',
-    async call(key, mime, b64) {
+    async call(key, mime, b64, _t, signal) {
       const model = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-      const r = await fetch(
-        'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent',
-        {
+      const level = (process.env.GEMINI_THINKING || 'low').toLowerCase(); // low | medium | high | off
+      const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent';
+      const send = withThinking => {
+        const generationConfig = { response_mime_type: 'application/json' };
+        if (withThinking) generationConfig.thinkingConfig = { thinkingLevel: level };
+        return fetch(url, {
+          signal,
           method: 'POST',
           headers: { 'x-goog-api-key': key, 'content-type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts: [{ text: PROMPT }, { inline_data: { mime_type: mime, data: b64 } }] }],
-            generationConfig: { response_mime_type: 'application/json' },
+            generationConfig,
           }),
-        }
-      );
+        });
+      };
+      const useThinking = level !== 'off';
+      let r = await send(useThinking);
+      if (useThinking && r.status === 400) r = await send(false); // this model may not accept the thinking field
       return {
         r,
         text: j => {
@@ -90,8 +100,9 @@ const PROVIDERS = {
     label: 'DeepSeek',
     keyEnv: 'DEEPSEEK_API_KEY',
     input: 'text',
-    async call(key, _mime, _b64, ocrText) {
+    async call(key, _mime, _b64, ocrText, signal) {
       const r = await fetch('https://api.deepseek.com/chat/completions', {
+        signal,
         method: 'POST',
         headers: { Authorization: 'Bearer ' + key, 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -149,13 +160,18 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { r, text } = await prov.call(prov.key, mime, b64, ocrText);
+    const { r, text } = await prov.call(prov.key, mime, b64, ocrText, AbortSignal.timeout(TIMEOUT_MS));
     if (r.status === 429) return res.status(429).json({ error: 'rate_limited' });
-    if (!r.ok) return res.status(502).json({ error: 'upstream_error', status: r.status });
+    if (!r.ok) {
+      let detail = '';
+      try { detail = (await r.text()).replace(/\s+/g, ' ').slice(0, 300); } catch (e) { /* no body */ }
+      return res.status(502).json({ error: 'upstream_error', status: r.status, provider: prov.id, detail });
+    }
     const out = text(await r.json());
     if (!out || !out.trim()) return res.status(502).json({ error: 'empty_completion' });
     return res.status(200).json({ text: out, provider: prov.id });
   } catch (e) {
-    return res.status(502).json({ error: 'upstream_error' });
+    if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) return res.status(504).json({ error: 'timeout', provider: prov.id });
+    return res.status(502).json({ error: 'upstream_error', provider: prov.id, detail: String((e && e.message) || e).slice(0, 200) });
   }
 };
