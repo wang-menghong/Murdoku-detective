@@ -30,7 +30,17 @@ body{background:var(--bg);color:var(--ink);font:500 15px/1.45 var(--body);
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 28px;
   -webkit-text-size-adjust:100%}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
-body[data-step="play"]{padding-bottom:132px}
+/* Solve screen is one fixed page: header, pinned map, status, then a scroll area for rules and suspects, then the dock. */
+html[data-step="play"],html[data-step="play"] body{height:100%;overflow:hidden}
+body[data-step="play"]{display:flex;flex-direction:column;padding-bottom:var(--dockH,92px)}
+body[data-step="play"] main{flex:1;min-height:0;display:flex;flex-direction:column;width:100%}
+#s-play{flex:1;min-height:0;padding-top:8px;gap:8px;overflow-y:auto;overflow-x:hidden}
+#s-play .board{flex:none;margin:0 auto}
+#s-play .status{flex:none}
+#s-play .result{flex:none;margin:0}
+.scroller{flex:1 1 auto;min-height:120px;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:8px 6px 12px;margin:0 -6px;border-top:2px solid var(--soft)}
+.scroller>.sec:first-child{margin-top:0}
+.scroller .cards{margin-top:8px}
 button{font:inherit;color:inherit}
 h1,h2{font-family:var(--display);font-weight:800;letter-spacing:-.01em;text-wrap:balance;margin:0}
 h2{font-size:24px;line-height:1.1}
@@ -38,7 +48,7 @@ p{margin:0}
 .wrap{max-width:560px;margin:0 auto}
 
 /* header */
-.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:9;background:var(--bg);padding:10px 0 8px;max-width:560px;margin:0 auto}
+.top{width:100%;position:sticky;top:env(safe-area-inset-top,0px);z-index:9;background:var(--bg);padding:10px 0 8px;max-width:560px;margin:0 auto}
 .bar{display:flex;align-items:center;gap:8px}
 .ibtn{flex:none;width:42px;height:42px;border-radius:50%;border:2px solid var(--line);background:var(--btn);color:var(--btn-ink);display:grid;place-items:center;padding:0;cursor:pointer}
 .ibtn svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
@@ -169,6 +179,12 @@ img.av{object-fit:cover;object-position:top;border-radius:12px;border:2px solid 
 .rule.dn .dnb{background:var(--good);border-color:var(--good)}
 .rule.dn .dnb svg{opacity:1;stroke:#fff}
 .ed.rl{border-left-width:2px}
+
+.card>div{grid-column:2;grid-row:1 / span 2}
+.card .nm{flex-wrap:wrap;column-gap:6px}
+.card .nm span{white-space:normal;overflow-wrap:anywhere;overflow:visible}
+.card .av{grid-column:1;grid-row:1}
+.card .dnb{position:static;grid-column:1;grid-row:2;justify-self:center;align-self:start;margin-top:2px}
 
 /* dock */
 .dock{position:fixed;left:0;right:0;bottom:0;z-index:8;background:var(--bg);border-top:2px solid var(--line);
@@ -403,7 +419,7 @@ async function loadSample(){
 const canGo=s=>s==='upload'||(s==='grid'&&!!S.map)||(s==='clues'&&!!S.quad)||(s==='play'&&!!S.quad&&S.suspects.length>0);
 function go(s){if(!canGo(s))return;if(s==='grid'&&!S.quad)runDetect();S.step=s;save();render();window.scrollTo(0,0);}
 function render(){
-  document.body.dataset.step=S.step;
+  document.body.dataset.step=S.step;document.documentElement.dataset.step=S.step;
   STEPS.forEach(s=>{$('#s-'+s).hidden=s!==S.step;});
   $$('.pill-step').forEach(b=>{const s=b.dataset.go;b.classList.toggle('on',s===S.step);b.disabled=!canGo(s);b.setAttribute('aria-current',s===S.step?'step':'false');});
   $('#dock').hidden=S.step!=='play';$('#timer').hidden=S.step!=='play';
@@ -721,19 +737,37 @@ function rPlay(){
       ${avatarOf(s)}<div style="min-width:0"><div class="nm"><i>${esc(s.letter||'?')}</i><span>${esc(s.name||'Suspect')}</span></div>${s.victim?'<span class="tag">Victim</span>':''}<div class="cl">${fmtClue(s.clue)||'<span style="color:var(--ink2)">No clue entered</span>'}</div></div>
       <button class="dnb" data-act="done" data-sid="${s.id}" aria-label="Mark clue as used"><svg viewBox="0 0 24 24"><path d="M5 12.5l5 5 9-11"/></svg></button></div>`).join('');
   const hint=S.tool==='cross'?'Cross tool: tap squares nobody can be in.':S.tool==='erase'?'Eraser: tap a square to clear it.':sel?(S.mode==='pen'?`Pen: tap a square to place ${esc(sel.name||sel.letter)}.`:`Pencil: tap squares where ${esc(sel.name||sel.letter)} might be.`):'Tap a suspect card, then tap a square.';
+  const oldSc=$('#scroller'),keepTop=oldSc?oldSc.scrollTop:0;
   $('#s-play').innerHTML=`
     <div class="board" style="aspect-ratio:${S.cols}/${S.rows}"><div class="cells" style="grid-template-columns:repeat(${S.cols},1fr);grid-template-rows:repeat(${S.rows},1fr)">${cells}</div></div>
     <div class="status" style="margin-top:0"><span class="chip${placed===n&&n?' good':''}">${placed} of ${n} placed</span><span class="chip">${S.mode==='pen'?'Pen':'Pencil'}</span><span class="hintline" style="margin:0">${hint}</span></div>
     ${result?`<p class="result ${result.ok?'ok':'no'}" role="status">${esc(result.msg)}</p>`:''}
+    <div class="scroller" id="scroller">
     ${S.rules.length?`<h3 class="sec">General rules</h3><div class="rules">${S.rules.map(r=>`<div class="rule${r.done?' dn':''}"><span class="tag">Rule</span><div class="cl">${fmtClue(r.text)||'<span style="color:var(--ink2)">Empty rule</span>'}</div><button class="dnb" data-act="rule-done" data-rid="${r.id}" aria-label="Mark rule as used"><svg viewBox="0 0 24 24"><path d="M5 12.5l5 5 9-11"/></svg></button></div>`).join('')}</div>`:''}
-    <h3 class="sec">Suspects</h3><div class="cards" style="margin-top:8px">${cards}</div>`;
+    <h3 class="sec">Suspects</h3><div class="cards">${cards}</div></div>`;
+  const nsc=$('#scroller');if(nsc)nsc.scrollTop=keepTop;
   $('#s-play .board').prepend(boardCanvas);
   $('#d-cross').setAttribute('aria-pressed',S.tool==='cross');$('#d-erase').setAttribute('aria-pressed',S.tool==='erase');
   $('#d-undo').disabled=!hist.length;
   const m=$('#d-mode');m.className='dk pen';m.setAttribute('aria-pressed',S.mode==='pen');
   m.innerHTML=S.mode==='pen'?'<svg viewBox="0 0 24 24"><path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19z"/><path d="M14.5 6.5l3 3"/></svg>Pen':'<svg viewBox="0 0 24 24"><path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19z" stroke-dasharray="2.6 2.6"/></svg>Pencil';
   $('#d-count').textContent=placed+'/'+n;
+  fitBoard();
 }
+/* Size the map to the space left after the header, status line, dock and a minimum strip for the clues. */
+function fitBoard(){
+  if(S.step!=='play')return;
+  const main=$('#s-play'),b=main&&$('.board',main),sc=$('#scroller');if(!b||!sc)return;
+  const dock=$('#dock');document.body.style.setProperty('--dockH',(dock.offsetHeight||92)+'px');
+  const gap=8,avail=main.clientHeight;
+  let other=0;Array.from(main.children).forEach(c=>{if(c!==b&&c!==sc)other+=c.offsetHeight+gap;});
+  const maxH=avail-other-Math.max(130,avail*.2)-gap*2,maxW=main.clientWidth;
+  const w=Math.max(Math.min(maxW,170),Math.min(maxW,maxH*S.cols/S.rows));
+  b.style.width=Math.floor(w)+'px';
+}
+window.addEventListener('resize',()=>fitBoard());
+window.addEventListener('orientationchange',()=>setTimeout(fitBoard,200));
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>fitBoard());
 let crop=null;
 function openPic(sid){
   const s=sus(sid);if(!s)return;
