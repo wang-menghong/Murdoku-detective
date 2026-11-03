@@ -12,6 +12,8 @@ A phone-first web page that helps you solve Murdoku cases from printed books. It
    - Pen places a suspect for good and crosses out their row and column.
    - The X tool adds and removes crosses, the eraser clears a square, and Undo steps back.
    - Check confirms every row and column holds one suspect.
+   - The magnifier button in the header zooms the map to 1.5x, 2x and 3x; drag the map to pan. A pen placement and the cross tool draw the same cross and clear pencil marks from the squares they cross out.
+   - The map stays pinned at the top and only the rules and suspect cards scroll.
 
 Progress, photos and the timer are saved in the browser's local storage.
 

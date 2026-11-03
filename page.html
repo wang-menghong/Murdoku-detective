@@ -35,9 +35,6 @@ html[data-step="play"],html[data-step="play"] body{height:100%;overflow:hidden}
 body[data-step="play"]{display:flex;flex-direction:column;padding-bottom:var(--dockH,92px)}
 body[data-step="play"] main{flex:1;min-height:0;display:flex;flex-direction:column;width:100%}
 #s-play{flex:1;min-height:0;padding-top:8px;gap:8px;overflow-y:auto;overflow-x:hidden}
-#s-play .board{flex:none;margin:0 auto}
-#s-play .status{flex:none}
-#s-play .result{flex:none;margin:0}
 .scroller{flex:1 1 auto;min-height:120px;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:8px 6px 12px;margin:0 -6px;border-top:2px solid var(--soft)}
 .scroller>.sec:first-child{margin-top:0}
 .scroller .cards{margin-top:8px}
@@ -126,9 +123,7 @@ p{margin:0}
 .board canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
 .cells{position:absolute;inset:0;display:grid}
 .cell{position:relative;border:1px solid rgba(0,0,0,.3);background:transparent;padding:0;margin:0;cursor:pointer;-webkit-appearance:none;appearance:none;touch-action:manipulation;min-width:0;min-height:0;overflow:hidden}
-.cell.dead::before{content:"";position:absolute;inset:0;background:rgba(255,255,255,.4)}
-.cell .x{position:absolute;left:18%;top:18%;width:64%;height:64%;fill:none;stroke:rgba(23,21,31,.5);stroke-width:1.3;stroke-linecap:round}
-.cell.man .x{left:12%;top:12%;width:76%;height:76%;stroke:#17151f;stroke-width:2;filter:drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff)}
+.cell .x{position:absolute;left:12%;top:12%;width:76%;height:76%;fill:none;stroke:#17151f;stroke-width:2;stroke-linecap:round;filter:drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff)}
 .mk{position:absolute;left:50%;top:50%;width:74%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;background:var(--sc);border:3px solid #17151f;display:grid;place-items:center;font:800 clamp(15px,6vw,30px)/1 var(--display);color:#17151f;box-shadow:0 2px 0 rgba(0,0,0,.45)}
 .mk.bad{border-color:var(--bad);box-shadow:0 0 0 3px #fff,0 0 0 6px var(--bad)}
 .tmps{position:absolute;inset:6%;display:flex;flex-wrap:wrap;align-content:center;justify-content:center;gap:3px}
@@ -186,6 +181,25 @@ img.av{object-fit:cover;object-position:top;border-radius:12px;border:2px solid 
 .card .av{grid-column:1;grid-row:1}
 .card .dnb{position:static;grid-column:1;grid-row:2;justify-self:center;align-self:start;margin-top:2px}
 
+/* map viewport: the board can be zoomed and panned inside a fixed frame */
+.mapwrap{position:relative;flex:none;align-self:center}
+.mapvp{overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;border:4px solid #000;border-radius:6px;box-shadow:0 4px 0 rgba(0,0,0,.35);background:#e9e6dc;scrollbar-width:none}
+.mapvp::-webkit-scrollbar{display:none}
+.mapvp .board{width:calc(var(--z,1)*100%);border:0;border-radius:0;box-shadow:none;container-type:inline-size}
+.mk{font-size:calc(100cqw/var(--n,6)*.4)}
+.tm{font-size:calc(100cqw/var(--n,6)*.2)}
+.tmps.one .tm{font-size:calc(100cqw/var(--n,6)*.34)}
+.zoombtn{display:none;width:auto;min-width:42px;padding:0 10px;border-radius:21px;font:800 13px var(--body)}
+.zoombtn svg{width:20px;height:20px}
+body[data-step="play"] .zoombtn{display:inline-grid;grid-auto-flow:column;gap:4px;align-items:center}
+.zoombtn[aria-pressed="true"]{background:var(--accent);color:#06203d;border-color:#06203d}
+body[data-step="play"] .steps,body[data-step="play"] [data-act="help"]{display:none}
+body[data-step="play"] .top{padding:6px 0}
+@media (max-width:600px){
+  body[data-step="play"] main{max-width:none;width:auto;margin-left:calc(-1*max(16px,env(safe-area-inset-left,0px)));margin-right:calc(-1*max(16px,env(safe-area-inset-right,0px)))}
+  #s-play{max-width:none;margin:0;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+}
+
 /* dock */
 .dock{position:fixed;left:0;right:0;bottom:0;z-index:8;background:var(--bg);border-top:2px solid var(--line);
   padding:10px max(16px,env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
@@ -217,6 +231,7 @@ img.av{object-fit:cover;object-position:top;border-radius:12px;border:2px solid 
     <button class="ibtn plain" id="back" data-act="back" aria-label="Previous step"><svg viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></svg></button>
     <input id="title" type="text" maxlength="48" placeholder="Name this case" autocomplete="off" aria-label="Case name">
     <span id="timer" hidden>0:00</span>
+    <button class="ibtn zoombtn" id="zoomBtn" data-act="zoom-map" aria-label="Zoom the map" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5M8 10.5h5M10.5 8v5"/></svg><span id="zoomLbl">1×</span></button>
     <button class="ibtn" data-act="help" aria-label="How it works"><svg viewBox="0 0 24 24"><path d="M9.5 9a2.6 2.6 0 1 1 3.6 2.4c-.8.4-1.1.9-1.1 1.8M12 17.2v.1"/></svg></button>
     <button class="ibtn" data-act="gear" aria-label="Case menu"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/></svg></button>
   </div>
@@ -268,6 +283,7 @@ const bil=(q,u,v)=>[(1-v)*((1-u)*q[0][0]+u*q[1][0])+v*((1-u)*q[3][0]+u*q[2][0]),
 function fresh(){return{step:'upload',title:'',map:null,clue:null,quad:null,rows:6,cols:6,suspects:[],rules:[],play:{perm:{},temp:{},cross:[]},sel:null,tool:'place',mode:'pencil',elapsed:0,nid:1};}
 let S=fresh();
 try{const raw=localStorage.getItem(KEY);if(raw)S=Object.assign(fresh(),JSON.parse(raw));}catch(e){}
+let scTopOnce=false,zoomCenter=null;const ZOOMS=[1,1.5,2,3];
 let hist=[],result=null,mapImg=null,clueImg=null,boardCanvas=null,boardDirty=true,sampleFn=null,canImages=false,gv=null;
 const hostMode=!window.claude&&/^https?:$/.test(location.protocol); /* ordinary web host: clue reading goes through /api/read-clues */
 let apiProvider=null; /* {id,label} when the host's /api/read-clues has a key configured */
@@ -375,7 +391,7 @@ function tri(ctx,img,s,d){
   ctx.closePath();ctx.clip();ctx.setTransform(m[0],m[1],m[2],m[3],m[4],m[5]);ctx.drawImage(img,0,0);ctx.restore();
 }
 function buildBoard(){
-  const cs=120,cv=document.createElement('canvas');cv.width=S.cols*cs;cv.height=S.rows*cs;
+  const cs=Math.min(240,Math.max(100,Math.round(1500/Math.max(S.cols,S.rows)))),cv=document.createElement('canvas');cv.width=S.cols*cs;cv.height=S.rows*cs;
   const ctx=cv.getContext('2d');ctx.fillStyle='#e9e6dc';ctx.fillRect(0,0,cv.width,cv.height);
   if(mapImg&&S.quad){
     for(let r=0;r<S.rows;r++)for(let c=0;c<S.cols;c++){
@@ -724,25 +740,25 @@ function rPlay(){
   for(const c in colsUsed)if(colsUsed[c].length>1)colsUsed[c].forEach(s=>bad.add(s));
   let cells='';
   for(let r=0;r<S.rows;r++)for(let c=0;c<S.cols;c++){
-    const k=key(r,c),here=pm[k],dead=!here&&(rowsUsed[r]||colsUsed[c]),man=P.cross.includes(k),tmp=(P.temp[k]||[]).filter(sus);
+    const k=key(r,c),here=pm[k],dead=!here&&(rowsUsed[r]||colsUsed[c]),man=P.cross.includes(k),tmp=(man||dead)?[]:(P.temp[k]||[]).filter(sus);
     let inner='';
-    if(man)inner+='<svg class="x" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5"/></svg>';
-    else if(dead)inner+='<svg class="x" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5"/></svg>';
+    if(man||dead)inner+='<svg class="x" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5"/></svg>';
     if(here){const s=sus(here);inner+=`<span class="mk${bad.has(here)?' bad':''}" style="--sc:${s.color}">${esc(s.letter||'?')}</span>`;}
     else if(tmp.length){const shown=tmp.slice(0,4);inner+=`<span class="tmps${tmp.length===1?' one':''}">${shown.map(id=>{const s=sus(id);return`<span class="tm" style="--sc:${s.color}">${esc(s.letter||'?')}</span>`;}).join('')}${tmp.length>4?`<span class="tm more">+${tmp.length-3}</span>`:''}</span>`;}
     cells+=`<button class="cell${dead?' dead':''}${man?' man':''}" data-r="${r}" data-c="${c}" aria-label="Row ${r+1}, column ${c+1}${here?', '+esc(sus(here).name||sus(here).letter):''}">${inner}</button>`;
   }
   const n=S.suspects.length,placed=Object.keys(P.perm).length,sel=S.sel&&sus(S.sel);
   const cards=S.suspects.map(s=>`<div class="card${S.sel===s.id?' sel':''}${s.done?' dn':''}" style="--sc:${s.color}" role="button" tabindex="0" data-act="sel" data-sid="${s.id}" aria-pressed="${S.sel===s.id}">
-      ${avatarOf(s)}<div style="min-width:0"><div class="nm"><i>${esc(s.letter||'?')}</i><span>${esc(s.name||'Suspect')}</span></div>${s.victim?'<span class="tag">Victim</span>':''}<div class="cl">${fmtClue(s.clue)||'<span style="color:var(--ink2)">No clue entered</span>'}</div></div>
+      ${avatarOf(s)}<div style="min-width:0"><div class="nm"><i>${esc(s.letter||'?')}</i><span>${esc(s.name||(s.victim?'Victim':'Suspect'))}</span></div>${s.victim?'<span class="tag">Victim</span>':''}<div class="cl">${fmtClue(s.clue)||'<span style="color:var(--ink2)">No clue entered</span>'}</div></div>
       <button class="dnb" data-act="done" data-sid="${s.id}" aria-label="Mark clue as used"><svg viewBox="0 0 24 24"><path d="M5 12.5l5 5 9-11"/></svg></button></div>`).join('');
   const hint=S.tool==='cross'?'Cross tool: tap squares nobody can be in.':S.tool==='erase'?'Eraser: tap a square to clear it.':sel?(S.mode==='pen'?`Pen: tap a square to place ${esc(sel.name||sel.letter)}.`:`Pencil: tap squares where ${esc(sel.name||sel.letter)} might be.`):'Tap a suspect card, then tap a square.';
-  const oldSc=$('#scroller'),keepTop=oldSc?oldSc.scrollTop:0;
+  const oldSc=$('#scroller'),keepTop=(oldSc&&!scTopOnce)?oldSc.scrollTop:0;scTopOnce=false;
+  const oldVp=$('#mapvp'),keepL=oldVp?oldVp.scrollLeft:0,keepT=oldVp?oldVp.scrollTop:0,z=S.zoom||1;
   $('#s-play').innerHTML=`
-    <div class="board" style="aspect-ratio:${S.cols}/${S.rows}"><div class="cells" style="grid-template-columns:repeat(${S.cols},1fr);grid-template-rows:repeat(${S.rows},1fr)">${cells}</div></div>
-    <div class="status" style="margin-top:0"><span class="chip${placed===n&&n?' good':''}">${placed} of ${n} placed</span><span class="chip">${S.mode==='pen'?'Pen':'Pencil'}</span><span class="hintline" style="margin:0">${hint}</span></div>
-    ${result?`<p class="result ${result.ok?'ok':'no'}" role="status">${esc(result.msg)}</p>`:''}
+    <div class="mapwrap" id="mapwrap"><div class="mapvp" id="mapvp"><div class="board" style="--n:${S.cols};--z:${z};aspect-ratio:${S.cols}/${S.rows}"><div class="cells" style="grid-template-columns:repeat(${S.cols},1fr);grid-template-rows:repeat(${S.rows},1fr)">${cells}</div></div></div></div>
     <div class="scroller" id="scroller">
+    ${result?`<p class="result ${result.ok?'ok':'no'}" role="status">${esc(result.msg)}</p>`:''}
+    <p class="hintline" style="margin:0 0 6px">${hint}</p>
     ${S.rules.length?`<h3 class="sec">General rules</h3><div class="rules">${S.rules.map(r=>`<div class="rule${r.done?' dn':''}"><span class="tag">Rule</span><div class="cl">${fmtClue(r.text)||'<span style="color:var(--ink2)">Empty rule</span>'}</div><button class="dnb" data-act="rule-done" data-rid="${r.id}" aria-label="Mark rule as used"><svg viewBox="0 0 24 24"><path d="M5 12.5l5 5 9-11"/></svg></button></div>`).join('')}</div>`:''}
     <h3 class="sec">Suspects</h3><div class="cards">${cards}</div></div>`;
   const nsc=$('#scroller');if(nsc)nsc.scrollTop=keepTop;
@@ -752,18 +768,27 @@ function rPlay(){
   const m=$('#d-mode');m.className='dk pen';m.setAttribute('aria-pressed',S.mode==='pen');
   m.innerHTML=S.mode==='pen'?'<svg viewBox="0 0 24 24"><path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19z"/><path d="M14.5 6.5l3 3"/></svg>Pen':'<svg viewBox="0 0 24 24"><path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19z" stroke-dasharray="2.6 2.6"/></svg>Pencil';
   $('#d-count').textContent=placed+'/'+n;
+  const zl=$('#zoomLbl');if(zl)zl.textContent=z+'\u00d7';const zb=$('#zoomBtn');if(zb)zb.setAttribute('aria-pressed',z>1);
   fitBoard();
+  const vp=$('#mapvp');
+  if(vp){
+    if(zoomCenter){vp.scrollLeft=zoomCenter.fx*vp.scrollWidth-vp.clientWidth/2;vp.scrollTop=zoomCenter.fy*vp.scrollHeight-vp.clientHeight/2;zoomCenter=null;}
+    else{vp.scrollLeft=keepL;vp.scrollTop=keepT;}
+  }
 }
-/* Size the map to the space left after the header, status line, dock and a minimum strip for the clues. */
+/* Size the map frame to the space left after the header, dock and a minimum strip for the clues. */
 function fitBoard(){
   if(S.step!=='play')return;
-  const main=$('#s-play'),b=main&&$('.board',main),sc=$('#scroller');if(!b||!sc)return;
+  const main=$('#s-play'),mw=main&&$('#mapwrap'),vp=$('#mapvp'),sc=$('#scroller');if(!mw||!vp||!sc)return;
   const dock=$('#dock');document.body.style.setProperty('--dockH',(dock.offsetHeight||92)+'px');
-  const gap=8,avail=main.clientHeight;
-  let other=0;Array.from(main.children).forEach(c=>{if(c!==b&&c!==sc)other+=c.offsetHeight+gap;});
-  const maxH=avail-other-Math.max(130,avail*.2)-gap*2,maxW=main.clientWidth;
-  const w=Math.max(Math.min(maxW,170),Math.min(maxW,maxH*S.cols/S.rows));
-  b.style.width=Math.floor(w)+'px';
+  const gap=8,cs=getComputedStyle(main),padT=parseFloat(cs.paddingTop)||0,padL=parseFloat(cs.paddingLeft)||0,padR=parseFloat(cs.paddingRight)||0;
+  const avail=main.clientHeight-padT;
+  let other=0;Array.from(main.children).forEach(c=>{if(c!==mw&&c!==sc)other+=c.offsetHeight+gap;});
+  const narrow=window.matchMedia('(max-width:600px)').matches;
+  const maxW=narrow?main.clientWidth-8:main.clientWidth-padL-padR;
+  const maxH=avail-other-Math.max(130,avail*.2)-gap*2;
+  const w=Math.floor(Math.max(Math.min(maxW,170),Math.min(maxW,(maxH-8)*S.cols/S.rows+8)));
+  mw.style.width=w+'px';vp.style.height=Math.round((w-8)*S.rows/S.cols+8)+'px';
 }
 window.addEventListener('resize',()=>fitBoard());
 window.addEventListener('orientationchange',()=>setTimeout(fitBoard,200));
@@ -813,11 +838,12 @@ function setupCrop(s){
   sl.addEventListener('input',()=>{crop.size=iw*sl.value/100;draw();});
   draw();box.scrollTop=Math.max(0,crop.cy*k-box.clientHeight/2);
 }
+function isDead(r,c){for(const sid in S.play.perm){const[pr,pc]=S.play.perm[sid].split(',').map(Number);if(pr===r||pc===c)return true;}return false;}
 function cellTap(r,c){
   const P=S.play,k=key(r,c),pm=placedMap(),here=pm[k];
   if(S.tool==='cross'){
     if(here){toast('A suspect is placed here. Use the eraser to clear it.');return;}
-    snapshot();const i=P.cross.indexOf(k);i>=0?P.cross.splice(i,1):P.cross.push(k);
+    snapshot();const i=P.cross.indexOf(k);if(i>=0)P.cross.splice(i,1);else{P.cross.push(k);delete P.temp[k];}
   }else if(S.tool==='erase'){
     if(!here&&!P.cross.includes(k)&&!(P.temp[k]||[]).length)return;
     snapshot();if(here)delete P.perm[here];P.cross=P.cross.filter(x=>x!==k);delete P.temp[k];
@@ -828,8 +854,11 @@ function cellTap(r,c){
     else if(S.mode==='pen'){
       snapshot();P.perm[sid]=k;P.cross=P.cross.filter(x=>x!==k);
       for(const t in P.temp){P.temp[t]=P.temp[t].filter(x=>x!==sid);if(!P.temp[t].length)delete P.temp[t];}
+      const[pr,pc]=k.split(',').map(Number);   /* the new crosses wipe pencil marks in this row and column */
+      for(const t in P.temp){const[tr,tc]=t.split(',').map(Number);if(t===k||tr===pr||tc===pc)delete P.temp[t];}
     }else{
       if(P.perm[sid]){toast('Already placed. Tap their marker to lift it, or switch to Pen to move them.');return;}
+      if(P.cross.includes(k)||isDead(r,c)){toast('That square is crossed out.');return;}
       snapshot();const t=P.temp[k]=P.temp[k]||[];const i=t.indexOf(sid);
       if(i>=0){t.splice(i,1);if(!t.length)delete P.temp[k];}else t.push(sid);
     }
@@ -837,6 +866,7 @@ function cellTap(r,c){
   save();rPlay();
 }
 function check(){
+  scTopOnce=true;
   const n=S.suspects.length,P=S.play,ids=Object.keys(P.perm);
   if(ids.length<n){result={ok:false,msg:`${ids.length} of ${n} suspects placed. Place everyone in pen first.`};}
   else{
@@ -891,7 +921,7 @@ document.addEventListener('click',e=>{
     case 'mode':S.mode=S.mode==='pen'?'pencil':'pen';save();rPlay();break;
     case 'check':check();break;
     case 'help':sheet(`<h2>How to solve</h2><div class="how"><div><span><b>Pick a suspect.</b> Tap their card. Tap it again to put it down.</span></div><div><span><b>Pencil.</b> Tap squares to mark where they might be. Several suspects can share a square.</span></div><div><span><b>Pen.</b> Tap a square to place them for good. Their row and column fade out and get crossed for everyone.</span></div><div><span><b>Cross and erase.</b> The X tool marks squares nobody can use. The eraser clears a square. Undo steps back.</span></div></div><button class="btn primary" data-act="close-sheet">Got it</button>`);break;
-    case 'gear':sheet(`<h2>Case menu</h2><button class="btn" data-act="edit-grid">Adjust the grid</button><button class="btn" data-act="edit-clues">Edit the clues</button><button class="btn" data-act="reset-marks">Clear all marks</button><button class="btn" data-act="new-case" style="color:var(--bad)">Start a new case</button><button class="btn primary" data-act="close-sheet">Close</button>`);break;
+    case 'gear':sheet(`<h2>Case menu</h2><button class="btn" data-act="help">How to solve</button><button class="btn" data-act="edit-photos">Change photos</button><button class="btn" data-act="edit-grid">Adjust the grid</button><button class="btn" data-act="edit-clues">Edit the clues</button><button class="btn" data-act="reset-marks">Clear all marks</button><button class="btn" data-act="new-case" style="color:var(--bad)">Start a new case</button><button class="btn primary" data-act="close-sheet">Close</button>`);break;
     case 'pic':openPic(sid);break;
     case 'pic-use':{const s=sus(sid);if(s&&crop&&clueImg){const iw=clueImg.naturalWidth,ih=clueImg.naturalHeight;s.avatar=cropSquare(clueImg,crop.cx,crop.cy,crop.size);s.box=[crop.cx/iw,crop.cy/ih,crop.size/iw];save();closeSheet();rClues();}break;}
     case 'pic-clear':{const s=sus(sid);if(s){s.avatar='';s.box=null;save();closeSheet();rClues();}break;}
@@ -899,6 +929,8 @@ document.addEventListener('click',e=>{
     case 'del-rule':S.rules=S.rules.filter(r=>r.id!==a.dataset.rid);save();rClues();break;
     case 'rule-done':{const r=S.rules.find(x=>x.id===a.dataset.rid);if(r){r.done=!r.done;save();rPlay();}break;}
     case 'close-sheet':closeSheet();break;
+    case 'edit-photos':closeSheet();go('upload');break;
+    case 'zoom-map':{const vp=$('#mapvp');if(vp&&vp.scrollWidth)zoomCenter={fx:(vp.scrollLeft+vp.clientWidth/2)/vp.scrollWidth,fy:(vp.scrollTop+vp.clientHeight/2)/vp.scrollHeight};const zi=ZOOMS.indexOf(S.zoom||1);S.zoom=ZOOMS[(zi+1)%ZOOMS.length];save();rPlay();break;}
     case 'edit-grid':closeSheet();go('grid');break;
     case 'edit-clues':closeSheet();go('clues');break;
     case 'reset-marks':arm('marks',a,'Tap again to clear marks',()=>{S.play={perm:{},temp:{},cross:[]};hist=[];result=null;S.elapsed=0;save();closeSheet();render();toast('Board cleared.');});break;
