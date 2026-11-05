@@ -42,6 +42,7 @@ body[data-step="play"] main{flex:1;min-height:0;display:flex;flex-direction:colu
 #s-play{flex:1;min-height:0;padding-top:8px;gap:8px;overflow-y:auto;overflow-x:hidden}
 .scroller{flex:1 1 auto;min-height:120px;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:8px 6px 12px;margin:0 -6px;border-top:2px solid var(--soft)}
 .scroller>.sec:first-child{margin-top:0}
+.scroller .hintline{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .scroller .cards{margin-top:8px}
 button{font:inherit;color:inherit}
 h1,h2{font-family:var(--display);font-weight:800;letter-spacing:-.01em;text-wrap:balance;margin:0}
@@ -768,7 +769,6 @@ function rPlay(){
     <p class="hintline" style="margin:0 0 6px">${hint}</p>
     ${S.rules.length?`<h3 class="sec">General rules</h3><div class="rules">${S.rules.map(r=>`<div class="rule${r.done?' dn':''}"><span class="tag">Rule</span><div class="cl">${fmtClue(r.text)||'<span style="color:var(--ink2)">Empty rule</span>'}</div><button class="dnb" data-act="rule-done" data-rid="${r.id}" aria-label="Mark rule as used"><svg viewBox="0 0 24 24"><path d="M5 12.5l5 5 9-11"/></svg></button></div>`).join('')}</div>`:''}
     <h3 class="sec">Suspects</h3><div class="cards">${cards}</div></div>`;
-  const nsc=$('#scroller');if(nsc)nsc.scrollTop=keepTop;
   $('#s-play .board').prepend(boardCanvas);
   $('#d-cross').setAttribute('aria-pressed',S.tool==='cross');$('#d-erase').setAttribute('aria-pressed',S.tool==='erase');
   $('#d-undo').disabled=!hist.length;
@@ -777,6 +777,7 @@ function rPlay(){
   $('#d-count').textContent=placed+'/'+n;
   const zl=$('#zoomLbl');if(zl)zl.textContent=z+'\u00d7';const zb=$('#zoomBtn');if(zb)zb.setAttribute('aria-pressed',z>1);
   fitBoard();
+  const nsc=$('#scroller');if(nsc)nsc.scrollTop=keepTop;   /* after fitBoard: the scroll area only reaches its final height once the map is sized */
   const vp=$('#mapvp');
   if(vp){
     if(zoomCenter){vp.scrollLeft=zoomCenter.fx*vp.scrollWidth-vp.clientWidth/2;vp.scrollTop=zoomCenter.fy*vp.scrollHeight-vp.clientHeight/2;zoomCenter=null;}
