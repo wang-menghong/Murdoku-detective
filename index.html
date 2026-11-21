@@ -294,19 +294,20 @@ try{const raw=localStorage.getItem(KEY);if(raw)S=Object.assign(fresh(),JSON.pars
 let scTopOnce=false,zoomCenter=null;const ZOOMS=[1,1.5,2,3];
 let hist=[],result=null,mapImg=null,clueImg=null,boardCanvas=null,boardDirty=true,sampleFn=null,canImages=false,gv=null;
 const hostMode=!window.claude&&/^https?:$/.test(location.protocol); /* ordinary web host: clue reading goes through /api/read-clues */
+const DBG=/[?&]ocrdbg/.test(location.search);
 let apiProvider=null; /* {id,label} when the host's /api/read-clues has a key configured */
 const OCR_LOCAL='/vendor/tesseract/',OCR_CDN='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/';
 let saveT=0;
 function save(){clearTimeout(saveT);saveT=setTimeout(()=>{try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){try{localStorage.setItem(KEY,JSON.stringify(Object.assign({},S,{map:null,clue:null})));}catch(_){}}},250);}
 function loadImg(src){return new Promise(r=>{if(!src)return r(null);const i=new Image();i.onload=()=>r(i);i.onerror=()=>r(null);i.src=src;});}
-async function fileToData(file,max=1500){
+async function fileToData(file,max=1500,q=.86){
   const url=URL.createObjectURL(file);
   try{
     const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=url;});
     const k=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
     const c=document.createElement('canvas');c.width=Math.round(img.naturalWidth*k);c.height=Math.round(img.naturalHeight*k);
     c.getContext('2d').drawImage(img,0,0,c.width,c.height);
-    return c.toDataURL('image/jpeg',.86);
+    return c.toDataURL('image/jpeg',q);
   }finally{URL.revokeObjectURL(url);}
 }
 function dataToBlob(d){const m=/^data:([^;]+);base64,(.*)$/.exec(d);const bin=atob(m[2]);const u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return new Blob([u],{type:m[1]});}
@@ -606,9 +607,10 @@ function parseLoose(t){
   if(a>=0&&b>a){try{return JSON.parse(t.slice(a,b+1));}catch(e){}}
   throw{code:'invalid_json'};
 }
+async function shrinkData(d,max){const im=await loadImg(d);if(!im||Math.max(im.naturalWidth,im.naturalHeight)<=max)return d;const k=max/Math.max(im.naturalWidth,im.naturalHeight),c=document.createElement('canvas');c.width=Math.round(im.naturalWidth*k);c.height=Math.round(im.naturalHeight*k);c.getContext('2d').drawImage(im,0,0,c.width,c.height);return c.toDataURL('image/jpeg',.86);}
 async function hostedRead(payload){
   let res;
-  try{res=await fetch('/api/read-clues',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload||{image:S.clue})});}
+  try{res=await fetch('/api/read-clues',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload||{image:await shrinkData(S.clue,1500)})});}
   catch(e){throw{code:'host_offline'};}
   if(res.status===404||res.status===405||res.status===501)throw{code:'host_unconfigured'};
   if(res.status===429)throw{code:'rate_limited'};
@@ -626,7 +628,7 @@ async function readClues(){
   const prompt='The attached photo shows the suspect clue cards of a Murdoku puzzle (a murder-mystery logic grid). Transcribe every card. Reply with only JSON in this shape: {"title": "puzzle title if visible, else empty string", "suspects": [{"name": "first name", "letter": "the single capital letter shown beside the name", "victim": true only for the victim card, "clue": "the clue text exactly as printed, with every word printed in bold wrapped in double asterisks", "face": [left, top, right, bottom of that card\'s small portrait picture as fractions from 0 to 1 of the whole photo width and height]}], "rules": ["each general rule or clue in the photo that does not belong to one suspect card, transcribed exactly, bold words in double asterisks"]}. Keep the order of the cards. If a card is partly hidden, include it with your best reading. Use an empty rules array when there are none.';
   try{
     let data;
-    if(sampleFn)data=await sampleFn.json(prompt,{images:dataToBlob(S.clue),modelTier:'default'});
+    if(sampleFn)data=await sampleFn.json(prompt,{images:dataToBlob(await shrinkData(S.clue,1500)),modelTier:'default'});
     else if(apiProvider&&apiProvider.input==='text'){
       /* text-only provider (DeepSeek): read the photo offline first, send only the text */
       st.textContent='Loading the text reader. The first run downloads about 5 MB.';
@@ -659,49 +661,216 @@ async function readClues(){
 }
 
 /* ---------- offline OCR (tesseract.js, runs in the browser) ---------- */
-/* Turn OCR text lines into suspect cards and general rules. Lines are {t,x0,y0,x1,y1,conf}. Pure function. */
-function ocrLinesToCards(lines,W){
-  const clean=t=>String(t||'').replace(/[|_~]/g,' ').replace(/\s+/g,' ').trim();
-  const L=lines.map(l=>({t:clean(l.t),x0:l.x0,y0:l.y0,x1:l.x1,y1:l.y1,conf:l.conf==null?100:l.conf}))
-    .filter(l=>l.t.length>=2&&/[A-Za-z]{2}/.test(l.t)&&l.conf>=45&&!/^(submit|undo|\(?place all|check)\b/i.test(l.t));
-  if(!L.length)return{suspects:[],rules:[]};
-  const hs=L.map(l=>l.y1-l.y0).sort((a,b)=>a-b),mh=hs[hs.length>>1]||20;
-  /* 1. columns: lines whose left edges are close belong together */
-  const cols=[];
-  L.slice().sort((a,b)=>a.x0-b.x0).forEach(l=>{
-    const c=cols[cols.length-1];
-    if(c&&l.x0-c.maxX0<=W*.07){c.items.push(l);c.maxX0=Math.max(c.maxX0,l.x0);}else cols.push({items:[l],maxX0:l.x0});
+/* The photo is cut into single text lines first (computer vision, below); each line is straightened, scaled to a
+   size Tesseract reads well, and read on its own. Reading line by line avoids merged cards and glued words. */
+function ocrSegment(img){
+  const k=Math.min(2,2600/Math.max(img.naturalWidth,img.naturalHeight)),w=Math.round(img.naturalWidth*k),h=Math.round(img.naturalHeight*k);
+  const cv=document.createElement('canvas');cv.width=w;cv.height=h;
+  const cx=cv.getContext('2d',{willReadFrequently:true});cx.imageSmoothingQuality='high';cx.drawImage(img,0,0,w,h);
+  const d=cx.getImageData(0,0,w,h).data,g=new Uint8Array(w*h);
+  for(let i=0,j=0;j<g.length;i+=4,j++)g[j]=(d[i]*299+d[i+1]*587+d[i+2]*114)/1000|0;
+  /* ink = clearly darker than the local average (integral image), so shadows and tinted cards do not matter */
+  const W1=w+1,I=new Uint32Array(W1*(h+1));
+  for(let y=0;y<h;y++){let run=0;for(let x=0;x<w;x++){run+=g[y*w+x];I[(y+1)*W1+x+1]=I[y*W1+x+1]+run;}}
+  const r=Math.max(8,Math.round(Math.max(w,h)/90)),ink=new Uint8Array(w*h);
+  for(let y=0;y<h;y++){
+    const ya=Math.max(0,y-r),yb=Math.min(h,y+r+1);
+    for(let x=0;x<w;x++){
+      const xa=Math.max(0,x-r),xb=Math.min(w,x+r+1);
+      const mean=(I[yb*W1+xb]-I[ya*W1+xb]-I[yb*W1+xa]+I[ya*W1+xa])/((xb-xa)*(yb-ya)),v=g[y*w+x];
+      if(mean>=70&&v*100<mean*87&&mean-v>=Math.max(14,mean*.12))ink[y*w+x]=1;
+    }
+  }
+  /* connected components (8-neighbour, union-find) */
+  const lab=new Int32Array(w*h),par=[0];
+  const find=a=>{while(par[a]!==a){par[a]=par[par[a]];a=par[a];}return a;};
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const p=y*w+x;if(!ink[p])continue;
+    let m=0;
+    const nb=[x>0?lab[p-1]:0,y>0&&x>0?lab[p-w-1]:0,y>0?lab[p-w]:0,y>0&&x<w-1?lab[p-w+1]:0];
+    for(const l of nb)if(l&&(!m||l<m))m=l;
+    if(!m){m=par.length;par.push(m);}else for(const l of nb)if(l){const a=find(l),b=find(m);if(a!==b){if(a<b)par[b]=a;else par[a]=b;}}
+    lab[p]=m;
+  }
+  const idOf=new Map(),comps=[];
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const p=y*w+x,l=lab[p];if(!l)continue;
+    const rt=find(l);let c=idOf.get(rt);
+    if(!c){c={x0:x,y0:y,x1:x,y1:y,a:0};idOf.set(rt,c);comps.push(c);}
+    if(x<c.x0)c.x0=x;if(x>c.x1)c.x1=x;if(y>c.y1)c.y1=y;c.a++;
+  }
+  comps.forEach(c=>{c.w=c.x1-c.x0+1;c.h=c.y1-c.y0+1;});
+  const solid=comps.filter(c=>c.a>=10&&c.h>=4);
+  if(solid.length<8)return{k,w,h,lines:[],m:0};
+  const hs=solid.map(c=>c.h).sort((a,b)=>a-b),m=hs[hs.length>>1];
+  /* drop card borders, avatars and the page edge: far bigger than a letter */
+  const C=comps.filter(c=>c.a>=4&&c.h<=m*4.2&&c.w<=m*24&&!(Math.max(c.w,c.h)>m*2.2&&Math.min(c.w,c.h)<m*.4)&&!(c.w>m*2.5&&c.a<c.w*c.h*.14)).sort((a,b)=>a.x0-b.x0);
+  /* join letters into words and lines: close horizontally and mostly overlapping vertically */
+  const up=C.map((_,i)=>i),fd=a=>{while(up[a]!==a){up[a]=up[up[a]];a=up[a];}return a;};
+  const gap=m*1.8;
+  for(let i=0;i<C.length;i++){
+    const a=C[i];
+    for(let j=i+1;j<C.length;j++){
+      const b=C[j];if(b.x0>a.x1+gap)break;
+      const oy=Math.min(a.y1,b.y1)-Math.max(a.y0,b.y0);
+      if(oy>=.5*Math.min(a.h,b.h)){const p=fd(i),q=fd(j);if(p!==q)up[q]=p;}
+    }
+  }
+  const grp=new Map();C.forEach((c,i)=>{const rt=fd(i);(grp.get(rt)||grp.set(rt,[]).get(rt)).push(c);});
+  /* specks (i-dots, stray marks) join the nearest real line */
+  const real=[...grp.values()].filter(g=>g.length>1||g[0].h>=m*.6),specks=[...grp.values()].filter(g=>g.length===1&&g[0].h<m*.6);
+  const bb=g=>({x0:Math.min(...g.map(c=>c.x0)),y0:Math.min(...g.map(c=>c.y0)),x1:Math.max(...g.map(c=>c.x1)),y1:Math.max(...g.map(c=>c.y1))});
+  specks.forEach(s=>{
+    const c=s[0];let best=null,bd=m*.9;
+    real.forEach(g=>g.forEach(o=>{const dx=Math.max(0,o.x0-c.x1,c.x0-o.x1),dy=Math.max(0,o.y0-c.y1,c.y0-o.y1),dd=Math.hypot(dx,dy);if(dd<bd){bd=dd;best=g;}}));
+    if(best)best.push(c);
   });
-  /* 2. inside a column, a "letter + name" line starts a card; so does a big vertical gap */
-  const HEAD=/^([A-Z])[\s.:\-]+([A-Z][A-Za-z'\-]{1,})$/;
-  const PRON=/^(She|The|He|They|Was|Not|And|But|Then|Nobody|Every|Each|Only|All)$/;
-  /* a name is "letter + name", or one capitalised word set in a larger (script) face than the clue text */
-  const isName=l=>HEAD.test(l.t)||(/^[A-Z][A-Za-z'\-]{2,14}$/.test(l.t)&&(l.y1-l.y0)>=mh*1.35&&!PRON.test(l.t));
-  const groups=[];
-  cols.forEach(c=>{
-    c.items.sort((a,b)=>a.y0-b.y0);
-    let g=null,prev=null;
-    c.items.forEach(l=>{
-      if(!g||isName(l)||l.y0-prev.y1>mh*2.2){g=[];groups.push(g);}
-      g.push(l);prev=l;
-    });
-  });
-  /* 3. read each group */
-  const cards=[],rules=[];
-  groups.forEach(g=>{
-    let letter='',name='',lines=g.map(l=>l.t),hasHead=false;
-    const h=HEAD.exec(lines[0]);
-    if(h){letter=h[1];name=h[2];lines=lines.slice(1);hasHead=true;}
-    else if(isName(g[0])&&g.length>1){name=lines[0];letter=name[0];lines=lines.slice(1);hasHead=true;}
-    else if(lines.length>1&&/^[A-Z][a-z]{2,13}$/.test(lines[0])&&!PRON.test(lines[0])){name=lines[0];letter=name[0];lines=lines.slice(1);hasHead=true;}
-    const clue=lines.join(' ').replace(/\s+([.,;:!?])/g,'$1').trim();
-    const looksLikeClue=/^(she|he|they|the victim|[A-Z][a-z]+ (was|were|is|stood|sat))\b/i.test(clue);
-    if(!hasHead&&!looksLikeClue){if(clue.length>=8)rules.push({t:clue,y:g[0].y0,x:g[0].x0});return;}
-    if(!clue&&!name)return;
-    cards.push({name,letter,clue,victim:/\bvictim\b/i.test(clue),x:g[0].x0,y:g[0].y0});
-  });
-  return{suspects:cards.map(c=>({name:c.name,letter:c.letter,clue:c.clue,victim:c.victim})),rules:rules.map(r=>r.t)};
+  const lines=real.map(g=>{
+    const b=bb(g),hh=g.map(c=>c.h).sort((a,c)=>a-c),mh=hh[hh.length>>1];
+    let slope=0;
+    if(g.length>=5&&b.x1-b.x0>6*m){
+      const pts=g.filter(c=>c.h>=m*.5).map(c=>[(c.x0+c.x1)/2,(c.y0+c.y1)/2]);
+      if(pts.length>=4){
+        const mx=pts.reduce((s,p)=>s+p[0],0)/pts.length,my=pts.reduce((s,p)=>s+p[1],0)/pts.length;
+        let sxy=0,sxx=0;pts.forEach(p=>{sxy+=(p[0]-mx)*(p[1]-my);sxx+=(p[0]-mx)**2;});
+        if(sxx>0)slope=Math.max(-.2,Math.min(.2,sxy/sxx));
+      }
+    }
+    return Object.assign(b,{members:g,mh,slope,n:g.length});
+  }).filter(l=>l.x1-l.x0>=m*2&&l.n>=2);
+  return{k,w,h,lines,m};
 }
+/* Cut one line out of the photo: rotate it level, hide everything outside its own letters, even out the
+   lighting and scale it so the letters are about 26 px tall. */
+function ocrCrop(img,seg,L,target,thick){
+  const k=seg.k,th=Math.atan(L.slope),cs=Math.cos(th),sn=Math.sin(th),s=Math.max(.35,Math.min(5,(target||26)/L.mh)),P=14;
+  const bw=L.x1-L.x0+1,bh=L.y1-L.y0+1,mx=Math.max(...L.members.map(c=>c.h));
+  const cw=Math.ceil((bw*cs+bh*Math.abs(sn))*s)+2*P,ch=Math.ceil((mx+L.mh*1.2)*s)+2*P;
+  if(cw*ch>6e6)return null;
+  const mk=(canvas)=>{const c=canvas.getContext('2d');c.setTransform(1,0,0,1,0,0);c.translate(cw/2,ch/2);c.rotate(-th);c.scale(s,s);c.translate(-(L.x0+L.x1)/2,-(L.y0+L.y1)/2);return c;};
+  const T=document.createElement('canvas');T.width=cw;T.height=ch;
+  let c=mk(T);c.fillStyle='#fff';c.fillRect(L.x0-bw,L.y0-bh,bw*3,bh*3);c.imageSmoothingQuality='high';c.scale(k,k);c.drawImage(img,0,0);
+  /* lighting: treat the 85th percentile as paper white, the 2nd as ink */
+  const tc=T.getContext('2d',{willReadFrequently:true}),id=tc.getImageData(0,0,cw,ch),d=id.data,hist=new Uint32Array(256),n=cw*ch;
+  for(let i=0;i<d.length;i+=4){const v=(d[i]*299+d[i+1]*587+d[i+2]*114)/1000|0;d[i]=v;hist[v]++;}
+  let acc=0,lo=0,hi=255;for(let v=0;v<256;v++){acc+=hist[v];if(acc>=n*.02){lo=v;break;}}
+  acc=0;for(let v=0;v<256;v++){acc+=hist[v];if(acc>=n*.85){hi=v;break;}}
+  const sc=255/Math.max(40,hi-lo);
+  for(let i=0;i<d.length;i+=4){const v=Math.max(0,Math.min(255,(d[i]-lo)*sc))|0;d[i]=d[i+1]=d[i+2]=v;d[i+3]=255;}
+  if(thick){/* fatten thin strokes (script names): grey-level erosion, 3x3 */
+    const src=new Uint8Array(cw*ch);for(let i=0,j=0;j<src.length;i+=4,j++)src[j]=d[i];
+    for(let y=1;y<ch-1;y++)for(let x=1;x<cw-1;x++){let v=255;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const u=src[(y+dy)*cw+x+dx];if(u<v)v=u;}const i=(y*cw+x)*4;d[i]=d[i+1]=d[i+2]=v;}
+  }
+  tc.putImageData(id,0,0);
+  /* mask: only the neighbourhood of this line's own letters survives */
+  const M=document.createElement('canvas');M.width=cw;M.height=ch;
+  const mc=mk(M);mc.fillStyle='#000';const e=Math.min(L.mh*.45,seg.m*.8);
+  L.members.forEach(o=>mc.fillRect(o.x0-e,o.y0-e,o.w+2*e,o.h+2*e));
+  tc.globalCompositeOperation='destination-in';tc.setTransform(1,0,0,1,0,0);tc.drawImage(M,0,0);
+  const F=document.createElement('canvas');F.width=cw;F.height=ch;const fc=F.getContext('2d');fc.fillStyle='#fff';fc.fillRect(0,0,cw,ch);fc.drawImage(T,0,0);
+  return F;
+}
+/* Common first names. Used only to repair script-font names that the reader garbles (see fixName). */
+const NAMES=('Ada Adam Adeline Adrian Aiden Alan Albert Alex Alexander Alice Alicia Alina Alison Amanda Amber Amelia Amy Andrea Andrew Angela Anita Ann Anna Anthony Archie Arthur Ashley Audrey Austin Ayla Barbara Barry Beatrice Beckie Becky Ben Benjamin Beth Betty Bianca Bill Billy Blake Bob Bonnie Brad Brandon Brenda Brian Briana Bridget Brigitte Brooke Bruce Bryan Caleb Cameron Candace Carl Carla Carlos Carol Caroline Carrie Carissa Casey Cassandra Catherine Cecil Cecilia Charles Charlotte Chelsea Cheryl Chloe Chris Christina Christopher Cindy Clara Clare Claude Clay Clyde Cody Colby Colin Connor Courtney Craig Cynthia Daisy Dale Damon Dan Dana Daniel Danielle Darren Dave David Dawn Dean Deborah Deena Denise Dennis Derek Diana Diane Dmitri Dominic Donald Donna Dora Doris Dorothy Doug Douglas Drew Dylan Earl Ed Eddie Edgar Edith Edmund Edward Eileen Elaine Eleanor Elena Eli Elijah Elise Eliza Elizabeth Ella Ellen Elliot Emil Emily Emma Eric Erica Erin Ernest Esther Ethan Eugene Eva Evan Evangeline Evelyn Fabian Fabrice Faith Fatima Felicity Felix Fiona Florence Frances Francis Frank Fred Freddie Gabriel Gabriella Garrett Gary Gavin Gemma George Georgia Gerald Gina Gloria Grace Graham Granger Grant Greg Gregory Greta Gus Guy Hailey Hal Hannah Harold Harper Harriet Harry Harvey Hazel Heather Hector Helen Henry Herbert Holly Hope Howard Hugh Hugo Ian Ida Igor Imogen Ingrid Irene Iris Isaac Isabel Isabella Ivan Ivy Jack Jackie Jacob Jade Jake James Jamie Jane Janet Jared Jasmine Jason Jean Jeff Jennifer Jenny Jeremy Jerry Jesse Jessica Jill Jim Joan Joe Joel John Jonathan Jordan Joseph Josh Joy Joyce Juan Judith Judy Julia Julian Julie June Justin Karen Kate Katherine Kathy Katie Keith Kelly Ken Kevin Kim Kirsten Kyle Lance Larry Laura Lauren Lawrence Leah Lena Leo Leon Leonard Leslie Lewis Liam Lily Linda Lisa Liz Lloyd Logan Lois Lorna Louis Louise Lucas Lucy Luke Luna Lydia Lynn Mabel Mack Madeline Maggie Manuel Marcus Margaret Maria Marie Marilyn Mark Martha Martin Marvin Mary Matt Matthew Maureen Max Maxine Megan Melanie Melissa Mia Michael Michelle Mike Mildred Miles Miranda Molly Monica Morgan Nancy Naomi Natalie Nathan Neil Nell Nelson Nicholas Nick Nicole Nina Noah Nora Norman Oliver Olivia Omar Oscar Otis Owen Pablo Paige Pam Pamela Pat Patricia Patrick Paul Paula Pearl Penny Peter Phil Philip Phoebe Piper Quentin Quinn Rachel Ralph Randy Raphael Raymond Rebecca Reggie Rex Richard Rick Rita Rob Robert Robin Rodney Roger Ron Ronald Rosa Rose Ross Roy Ruby Russell Ruth Ryan Sadie Sally Sam Samantha Samuel Sandra Sara Sarah Scott Sean Sebastian Selena Serena Seth Shannon Sharon Shawn Sheila Shelby Sherlock Shirley Sidney Simon Sofia Sophia Sophie Stacy Stan Stella Stephanie Stephen Steve Steven Sue Susan Suzanne Sylvia Tamara Tanya Taylor Ted Teresa Terry Thelma Theo Theodore Thomas Tiffany Tim Timothy Tina Toby Todd Tom Tony Tracy Travis Trevor Tristan Troy Tyler Ulysses Uma Una Ursula Val Valerie Vanessa Vera Vernon Veronica Vicky Victor Victoria Vince Vincent Viola Violet Virginia Viraj Vivian Wade Wallace Walter Wanda Warren Wayne Wendy Wesley Whitney Wilbur Will William Willow Wilma Winston Wyatt Xavier Yasmin Yolanda Yvonne Zach Zachary Zane Zelda Zoe').split(' ');
+const NAME_SET=new Set(NAMES.map(n=>n.toLowerCase()));
+function editDist(a,b){
+  const m=a.length,n=b.length;if(!m||!n)return Math.max(m,n);
+  let prev=[],cur=[];for(let j=0;j<=n;j++)prev[j]=j;
+  for(let i=1;i<=m;i++){cur=[i];for(let j=1;j<=n;j++)cur[j]=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+(a[i-1]===b[j-1]?0:1));prev=cur;}
+  return prev[n];
+}
+/* Best list name for a (possibly garbled) reading. letter, when known, is the required initial. Returns {name,d}. */
+function nearestName(raw,letter){
+  const w=String(raw||'').replace(/[^A-Za-z]/g,'').toLowerCase();if(w.length<2)return{name:'',d:9};
+  let best=null,bd=9,tie=false;
+  for(const n of NAMES){
+    if(letter&&n[0]!==letter)continue;
+    const d=editDist(w,n.toLowerCase());
+    if(d<bd){bd=d;best=n;tie=false;}else if(d===bd)tie=true;
+  }
+  return{name:best||'',d:bd,tie};
+}
+const nameTol=len=>len<=3?1:len<=5?2:3;
+/* Turn OCR text lines into suspect cards and general rules. Lines are {t,x0,y0,x1,y1,conf,h,ref}.
+   Works for both card layouts (name line + clue lines below it, left-aligned or centred). N = suspects expected. Pure function. */
+function ocrLinesToCards(lines,W,N){
+  const clean=t=>String(t||'').replace(/[|_~\\]/g,' ').replace(/^[^A-Za-z0-9'"(]+/,'').replace(/([a-z])([A-Z][a-z])/g,'$1 $2').replace(/\b(in|of|on|to|at|is|was|by|for|and|or|with)the\b/gi,'$1 the').replace(/\b(in|on|of|at|is|as|to)a\b/gi,'$1 a').replace(/\ba(table|chair|shelf|plant|rug|carpet|shrub|room|row|column|corner|sofa|bed|desk|lamp|piano)\b/g,'a $1').replace(/\b(man|woman|men|women|person|people)and\b/gi,'$1 and').replace(/\s+/g,' ').trim().replace(/^(?:\S{1,3}\s+){1,2}(?=(?:She|He|They|The|It|Nobody|No one)\b)/,'');
+  const hh=l=>l.h||(l.y1-l.y0);
+  const all=lines.map(l=>({t:clean(l.t),x0:l.x0,y0:l.y0,x1:l.x1,y1:l.y1,h:l.h,ref:l.ref,conf:l.conf==null?100:l.conf}));
+  all.forEach(l=>{
+    const letters=(l.t.match(/[A-Za-z]/g)||[]).length;
+    l.ok=letters>=2&&letters>=.6*l.t.replace(/\s/g,'').length&&l.conf>=30&&!/^(submit|undo|\(?place all|check)\b/i.test(l.t)&&!(l.t===l.t.toUpperCase()&&l.t.length<=24&&!/\./.test(l.t));
+    l.cx=(l.x0+l.x1)/2;l.w=l.x1-l.x0;
+  });
+  const G=all.filter(l=>l.ok);
+  if(!G.length)return{suspects:[],rules:[]};
+  const hs=G.map(hh).sort((a,b)=>a-b),mh=hs[hs.length>>1]||20;
+  const HEAD={exec:t=>{const m=/^([A-Za-z]{1,2})[\s.:\-]+([A-Za-z][A-Za-z'\-]{2,})\W?$/.exec(t);if(!m)return null;const w=m[2].toLowerCase();if(COMMON.has(w)||PRON.test(m[2])||(m[1].length>1&&COMMON.has(m[1].toLowerCase())))return null;return[t,m[1].length===1?m[1].toUpperCase():'',m[2][0].toUpperCase()+m[2].slice(1)];},test(t){return !!this.exec(t);}};
+  const PRON=/^(She|The|He|They|There|Was|Not|And|But|Then|Nobody|Every|Each|Only|All|Her|His|Its|Some|One|Both|Either|Neither|Someone|No|In|It|On|At)$/;
+  const STARTER=/^(she|he|they|there|the victim|in (his|her|their)|nobody|someone|every|it was|both|neither|no one|[A-Z][a-z]+ (was|were|is|stood|sat))\b/i;
+  const type=l=>HEAD.test(l.t)?'H':(/^[A-Za-z][A-Za-z'\-]{2,13}$/.test(l.t)&&!PRON.test(l.t)&&!COMMON.has(l.t.toLowerCase())&&(/^[A-Z]/.test(l.t)||l.t.length>=4)?'N':(STARTER.test(l.t)?'S':'C'));
+  const byY=all.slice().sort((a,b)=>a.y0-b.y0||a.x0-b.x0);
+  const cards=[],orphans=[],seen=[];
+  const COMMON=new Set('was were the in a an of on or and not beside with only person people room rooms alone victim there she he his her they row column sitting standing north south east west next to same other another someone empty exactly two three men man woman murderer who chair table shelf carpet plant rug corner fifth first second third fourth sixth is at by than more fewer all'.split(' '));
+  const plaus=t=>t.toLowerCase().split(/[^a-z]+/).filter(w=>COMMON.has(w)).length;
+  const aligned=(a,b)=>Math.abs(a.cx-b.cx)<=.5*Math.max(a.w,b.w)+.02*W||Math.abs(a.x0-b.x0)<=.04*W;
+  byY.forEach(l=>{
+    if(!l.ok){seen.push(l);return;}
+    l.type=type(l);
+    if(l.type==='H'||l.type==='N'){const c={head:l,lines:[],hasName:true,y:l.y0,cx:l.cx};l.card=c;cards.push(c);seen.push(l);return;}
+    let par=null,pg=1e9;
+    seen.forEach(p=>{
+      if(!p.ok||!p.card)return;
+      const gap=l.y0-p.y1;
+      if(gap<-.6*mh*2||gap>mh*2.6||!aligned(p,l))return;
+      if(gap<pg){pg=gap;par=p;}
+    });
+    if(par){l.card=par.card;par.card.lines.push(l);}
+    else{
+      /* an unreadable line right above (polaroid name that failed to read) makes a nameless card */
+      const anchor=l.type!=='S'?null:seen.find(j=>!j.card&&l.y0-j.y1>=-mh&&l.y0-j.y1<=mh*3.2&&aligned(j,l)&&(j.x1-j.x0)>=mh*1.5);
+      const c={head:anchor||null,lines:[l],hasName:false,y:anchor?anchor.y0:l.y0,cx:l.cx,orphan:!anchor};
+      l.card=c;(anchor?cards:orphans).push(c);
+    }
+    seen.push(l);
+  });
+  const rules=[];
+  const topY=Math.min(...cards.filter(c=>c.head&&c.head.ok).map(c=>c.y),1e9);
+  /* when cards are still missing, the best-reading unnamed clue blocks are suspects whose names were not found */
+  const need=N?N-cards.length:0,promo=new Set();
+  if(need>0)orphans.map(c=>({c,p:plaus(c.lines.map(l=>l.t).join(' ')),s:/^(she|he|the victim|in (his|her)|there (was|were) (someone|another|two|three|a man|a woman))\b/i.test(c.lines[0].t)&&c.y>=topY})).filter(o=>o.s&&o.p>=3).sort((a,b)=>b.p-a.p).slice(0,need).forEach(o=>{promo.add(o.c);cards.push(o.c);});
+  orphans.forEach(c=>{
+    if(promo.has(c))return;
+    const clue=c.lines.map(l=>l.t).join(' ').replace(/\s+([.,;:!?])/g,'$1').trim();
+    if(c.y<topY||clue.length<8)return; /* page title and subtitle sit above the cards */
+    if(/^(she|he|they|there|every|nobody|someone|no|the|all|each|exactly)\b/i.test(clue))rules.push({t:clue,y:c.y,p:plaus(clue),c});
+  });
+  /* reading order: columns left to right, rows top to bottom (the book's A, B, C / D, E, F layout) */
+  const cs=cards.slice().sort((a,b)=>a.cx-b.cx),cols=[];
+  cs.forEach(c=>{const k=cols[cols.length-1];if(k&&c.cx-k.cx<=W*.09){k.items.push(c);k.cx=(k.cx*(k.items.length-1)+c.cx)/k.items.length;}else cols.push({items:[c],cx:c.cx});});
+  cols.forEach(k=>k.items.sort((a,b)=>a.y-b.y).forEach((c,i)=>{c.row=i;c.col=k.cx;}));
+  cards.sort((a,b)=>a.row-b.row||a.col-b.col);
+  const out=cards.map(c=>{
+    let letter='',name='',lines=c.lines.map(l=>l.t);
+    if(c.head&&c.head.ok){
+      const h=HEAD.exec(c.head.t);
+      if(h){letter=h[1];name=h[2];if(letter&&name[0]!==letter)name=letter+name.slice(1);}else name=c.head.t[0].toUpperCase()+c.head.t.slice(1);
+    }
+    const clue=lines.join(' ').replace(/\s+([.,;:!?])/g,'$1').trim();
+    const victim=/\bvictim\b/i.test(clue);
+    return{c,name,letter,clue,victim};
+  }).filter(o=>plaus(o.clue)>=2||(o.name&&o.name.length>=3&&o.clue.length>=8));
+  /* names run A, B, C... skipping V, and the victim is V: when every card was found, that order is the initial */
+  const known=N&&out.length===N&&out.filter(o=>o.victim).length<=1;
+  let ix=0;
+  out.forEach(o=>{
+    if(o.victim)o.letter='V';
+    else if(known)o.letter=INITIALS[ix++];
+    else if(!o.letter&&o.name)o.letter=o.name[0].toUpperCase();
+  });
+  return{suspects:out.map(o=>({name:o.name,letter:o.letter,clue:o.clue,victim:o.victim,ref:o.c.head?o.c.head.ref:null,hl:!!(o.c.head&&o.c.head.ok&&HEAD.test(o.c.head.t))})),rules:rules.sort((a,b)=>a.y-b.y).map(r=>r.t)};
+}
+if(DBG){window.__seg=ocrSegment;window.__crop=ocrCrop;}
 let tessP=null;
 function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=()=>rej(new Error('script'));document.head.appendChild(s);});}
 async function tessSetup(){
@@ -711,80 +880,84 @@ async function tessSetup(){
   await loadScript((local?OCR_LOCAL:OCR_CDN)+'tesseract.min.js');
   tessP={local};return tessP;
 }
-/* Prepare the photo for Tesseract: grayscale, enlarge small photos, and even out uneven lighting
-   (divide by a blurred local-maximum background) so shadows do not wipe out half a page. */
-function ocrPrep(img){
-  const nw=img.naturalWidth,nh=img.naturalHeight,s=Math.min(2.5,Math.max(1,1400/nw)),w=Math.round(nw*s),h=Math.round(nh*s);
-  const cv=document.createElement('canvas');cv.width=w;cv.height=h;
-  const cx=cv.getContext('2d',{willReadFrequently:true});cx.imageSmoothingQuality='high';cx.drawImage(img,0,0,w,h);
-  const id=cx.getImageData(0,0,w,h),d=id.data,g=new Uint8Array(w*h);
-  for(let i=0,j=0;i<d.length;i+=4,j++)g[j]=(d[i]*299+d[i+1]*587+d[i+2]*114)/1000|0;
-  const B=6,sw=Math.ceil(w/B),sh=Math.ceil(h/B);
-  let sm=new Float32Array(sw*sh);
-  for(let y=0;y<h;y++){const row=(y/B|0)*sw;for(let x=0;x<w;x++){const k=row+(x/B|0),v=g[y*w+x];if(v>sm[k])sm[k]=v;}}
-  const r=Math.max(2,Math.round(Math.min(sw,sh)/12));
-  const box=(src,horiz)=>{
-    const out=new Float32Array(src.length),n=horiz?sw:sh,m=horiz?sh:sw;
-    for(let a=0;a<m;a++){
-      let acc=0,cnt=0;
-      const at=i=>src[horiz?a*sw+i:i*sw+a];
-      for(let i=0;i<Math.min(n,r+1);i++){acc+=at(i);cnt++;}
-      for(let i=0;i<n;i++){
-        out[horiz?a*sw+i:i*sw+a]=acc/cnt;
-        const add=i+r+1,del=i-r;
-        if(add<n){acc+=at(add);cnt++;}
-        if(del>=0){acc-=at(del);cnt--;}
-      }
-    }
-    return out;
-  };
-  for(let k=0;k<2;k++){sm=box(box(sm,true),false);}
-  const out=new Uint8Array(w*h),hist=new Uint32Array(256);
-  for(let y=0;y<h;y++){
-    const fy=Math.min(sh-1,y/B),y0=fy|0,y1=Math.min(sh-1,y0+1),ty=fy-y0;
-    for(let x=0;x<w;x++){
-      const fx=Math.min(sw-1,x/B),x0=fx|0,x1=Math.min(sw-1,x0+1),tx=fx-x0;
-      const bg=(sm[y0*sw+x0]*(1-tx)+sm[y0*sw+x1]*tx)*(1-ty)+(sm[y1*sw+x0]*(1-tx)+sm[y1*sw+x1]*tx)*ty;
-      const v=Math.min(255,g[y*w+x]*255/Math.max(1,bg))|0;out[y*w+x]=v;hist[v]++;
-    }
-  }
-  let acc=0,lo=0;const cut=w*h*.01;for(let v=0;v<256;v++){acc+=hist[v];if(acc>cut){lo=v;break;}}
-  const sc=255/Math.max(1,255-lo);
-  for(let i=0,j=0;j<out.length;i+=4,j++){const v=Math.max(0,Math.min(255,(out[j]-lo)*sc))|0;d[i]=d[i+1]=d[i+2]=v;d[i+3]=255;}
-  cx.putImageData(id,0,0);
-  return{canvas:cv,scale:s};
-}
-/* Run Tesseract on the clue photo. Returns {lines:[{t,x0,y0,x1,y1,conf}], text}. Nothing leaves the browser. */
+/* Run the whole offline reader on the clue photo: cut lines, read each, group into cards, repair names.
+   Returns {suspects, rules}. Nothing leaves the browser. */
 async function ocrRun(){
+  const status=t=>{const el=$('#clue-status');if(el)el.textContent=t;};
   const {local}=await tessSetup();
-  const opts={logger:m=>{if(m&&m.status){const p=m.progress!=null?' '+Math.round(m.progress*100)+'%':'';const el=$('#clue-status');if(el)el.textContent=({'recognizing text':'Reading the photo','loading language traineddata':'Loading language data'}[m.status]||'Working')+p;}}};
+  const opts={logger:()=>{}};
   if(local)Object.assign(opts,{workerPath:OCR_LOCAL+'worker.min.js',corePath:OCR_LOCAL,langPath:OCR_LOCAL+'lang/'});
+  status('Finding the text lines');
+  await new Promise(r=>setTimeout(r,30));
+  const seg=ocrSegment(clueImg);
+  if(!seg.lines.length)return{suspects:[],rules:[]};
+  status('Loading language data');
   const worker=await Tesseract.createWorker('eng',1,opts);
   try{
-    let src=S.clue,sc=1;
-    try{const pp=ocrPrep(clueImg);src=pp.canvas;sc=pp.scale;}catch(e){src=S.clue;sc=1;}
-    /* sparse-text mode finds each line on its own, so two columns of cards do not get merged */
-    try{await worker.setParameters({tessedit_pageseg_mode:'11'});}catch(e){}
-    const {data}=await worker.recognize(src);
-    let raw=data.lines;
-    if(!raw&&data.blocks)raw=data.blocks.flatMap(b=>(b.paragraphs||[]).flatMap(p=>p.lines||[]));
-    const lines=(raw||[]).map(l=>({t:l.text,x0:l.bbox.x0/sc,y0:l.bbox.y0/sc,x1:l.bbox.x1/sc,y1:l.bbox.y1/sc,conf:l.confidence==null?100:l.confidence}));
-    return{lines,text:lines.filter(l=>l.conf>=45).map(l=>String(l.t||'').trim()).filter(Boolean).join('\n'),scale:sc};
+    const mode=async m=>{try{await worker.setParameters({tessedit_pageseg_mode:m,user_defined_dpi:'300'});}catch(e){}};
+    const read=async(L,target,thick)=>{
+      const cv=ocrCrop(clueImg,seg,L,target,thick);if(!cv)return null;
+      try{const {data}=await worker.recognize(cv);return{t:String(data.text||'').replace(/\s+/g,' ').trim(),conf:data.confidence==null?100:data.confidence};}catch(e){return null;}
+    };
+    await mode('7');
+    const order=seg.lines.map((L,i)=>({L,i})).sort((a,b)=>a.L.y0-b.L.y0),out=[];
+    for(let k=0;k<order.length;k++){
+      const {L,i}=order[k];status('Reading line '+(k+1)+' of '+order.length);
+      const r=await read(L,L.mh>1.6*seg.m?40:26);
+      out.push({t:r?r.t:'',x0:L.x0/seg.k,y0:L.y0/seg.k,x1:L.x1/seg.k,y1:L.y1/seg.k,h:L.mh/seg.k,conf:r?r.conf:0,ref:i});
+    }
+    const W=clueImg.naturalWidth,res=ocrLinesToCards(out,W,gridN());
+    if(DBG)console.log('[['+JSON.stringify(out.map(l=>[l.t,Math.round(l.conf),Math.round(l.x0),Math.round(l.y0)])));
+    /* script names are the weak spot: read each name line again at other sizes and keep the reading closest to a real name */
+    status('Checking names');
+    await mode('8');
+    for(const sx of res.suspects){
+      if(sx.ref==null)continue;
+      const L=seg.lines[sx.ref],last=t=>String(t||'').split(/\s+/).pop();
+      const cands=[last(sx.name)];
+      for(const tg of [32,44,58]){const r=await read(L,tg);if(r&&r.t)cands.push(last(r.t));}
+      await mode('7');
+      for(const tg of [38,50]){const r=await read(L,tg,true);if(r&&r.t)cands.push(last(r.t));}
+      await mode('8');
+      const fixed=fixName(cands,sx.victim?'V':sx.letter,sx.name);
+      if(fixed)sx.name=fixed;
+    }
+    res.text=out.filter(l=>l.t).map(l=>l.t).join('\n');
+    return res;
   }finally{try{await worker.terminate();}catch(_){}}
+}
+/* Pick the best name among several readings of one script line: the list name closest to all of them. */
+function fixName(cands,letter,orig){
+  const ws=cands.map(c=>String(c||'').replace(/[^A-Za-z]/g,'').toLowerCase()).filter(w=>w.length>=2);
+  if(ws.length){
+    let best=null,second=1e9;
+    for(const n of NAMES){
+      if(letter&&n[0]!==letter)continue;
+      const nl=n.toLowerCase();let sum=0;ws.forEach(w=>{sum+=Math.min(editDist(w,nl),4);});
+      if(!best||sum<best.sum){if(best)second=best.sum;best={n,sum};}else if(sum<second)second=sum;
+    }
+    if(best&&best.sum/ws.length<=1.8&&best.sum<second)return best.n;
+  }
+  /* nothing matched the list: keep the first usable reading, with the initial corrected */
+  let w=String(orig||'').replace(/[^A-Za-z]/g,'');
+  if(w.length<2)w=String(cands.find(c=>String(c||'').replace(/[^A-Za-z]/g,'').length>=3)||'').replace(/[^A-Za-z]/g,'');
+  if(!w)return '';
+  if(letter&&w[0].toUpperCase()!==letter)w=letter+w.slice(1);
+  return w[0].toUpperCase()+w.slice(1);
 }
 async function readOcr(){
   const st=$('#clue-status'),b1=$('#readbtn'),b2=$('#ocrbtn');if(!S.clue||!clueImg)return;
   [b1,b2].forEach(b=>{if(b)b.disabled=true;});st.className='note';st.textContent='Loading the text reader. The first run downloads about 5 MB.';
   try{
-    const {lines}=await ocrRun();
-    const res=ocrLinesToCards(lines,clueImg.naturalWidth);
+    const res=await ocrRun();
     if(!res.suspects.length&&!res.rules.length)throw{code:'ocr_empty'};
-    S.suspects=res.suspects.slice(0,12).map((s,i)=>newSuspect(i,s));
-    S.suspects.forEach(s=>{if(s.victim)s.letter='V';});
+    S.suspects=res.suspects.slice(0,12).map((s,i)=>newSuspect(i,{name:s.name,letter:s.letter,clue:s.clue,victim:s.victim}));
+    S.suspects.forEach(s=>{if(s.victim)s.letter='V';else if(!s.letter&&s.name)s.letter=s.name[0].toUpperCase();});
     S.rules=res.rules.map(t=>({id:'r'+(S.nid++),text:t,done:false}));
     save();render();
     const n=$('#clue-status');if(n){n.className='note ok';n.textContent='Read '+S.suspects.length+' cards offline. Check the text against the photo, then add names and pictures where they are missing.';}
   }catch(e){
+    if(DBG)console.log('[[ERR '+(e&&(e.stack||e.message||JSON.stringify(e))));
     [b1,b2].forEach(b=>{if(b)b.disabled=false;});
     const n=$('#clue-status');if(n){n.className='note err';n.textContent=errCopy[e&&e.code]||'The offline reader could not load. Check your connection for the first run, or type the clues in by hand.';}
   }
@@ -1009,7 +1182,7 @@ document.addEventListener('change',async e=>{
   if(t.matches('input[type=file][data-file]')){
     const f=t.files&&t.files[0];if(!f)return;const kind=t.dataset.file;
     try{
-      const d=await fileToData(f);
+      const d=kind==='clue'?await fileToData(f,2400,.85):await fileToData(f);
       if(kind==='avatar'){
         const s=sus(t.dataset.sid),im=await loadImg(d);
         if(s&&im){s.avatar=cropSquare(im,im.naturalWidth/2,im.naturalHeight/2,Math.min(im.naturalWidth,im.naturalHeight));s.box=null;save();closeSheet();rClues();}
